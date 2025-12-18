@@ -30,7 +30,7 @@ public:
 
     void dispatch();
 
-    void delayScheduleRepaint();
+    void delayScheduleRepaint(std::optional<std::chrono::steady_clock::time_point> presentNotBefore);
     void scheduleNextRepaint(std::optional<std::chrono::steady_clock::time_point> presentNotBefore);
     void scheduleRepaint(std::chrono::nanoseconds lastTargetTimestamp, std::chrono::nanoseconds presentNotBefore);
 
@@ -53,6 +53,7 @@ public:
     bool preparingNewFrame = false;
     int inhibitCount = 0;
     bool pendingReschedule = false;
+    std::optional<std::chrono::steady_clock::time_point> pendingPresentNotBefore;
     std::chrono::nanoseconds safetyMargin{0};
 
     PresentationMode presentationMode = PresentationMode::VSync;

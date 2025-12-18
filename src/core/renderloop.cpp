@@ -12,6 +12,8 @@
 #include "window.h"
 #include "workspace.h"
 
+#include <utility>
+
 using namespace std::chrono_literals;
 
 namespace KWin
@@ -50,6 +52,7 @@ void RenderLoopPrivate::scheduleNextRepaint(std::optional<std::chrono::steady_cl
 void RenderLoopPrivate::scheduleRepaint(std::chrono::nanoseconds lastTargetTimestamp, std::chrono::nanoseconds presentNotBefore)
 {
     pendingReschedule = false;
+    pendingPresentNotBefore.reset();
     const std::chrono::nanoseconds vblankInterval(1'000'000'000'000ull / refreshRate);
     const std::chrono::nanoseconds currentTime(std::chrono::steady_clock::now().time_since_epoch());
     presentNotBefore = std::max(presentNotBefore, currentTime);
@@ -141,8 +144,15 @@ void RenderLoopPrivate::scheduleRepaint(std::chrono::nanoseconds lastTargetTimes
     compositeTimer.start(nextRenderTimestamp);
 }
 
-void RenderLoopPrivate::delayScheduleRepaint()
+void RenderLoopPrivate::delayScheduleRepaint(std::optional<std::chrono::steady_clock::time_point> presentNotBefore)
 {
+    if (!pendingReschedule) {
+        pendingPresentNotBefore = presentNotBefore;
+    } else if (!presentNotBefore) {
+        pendingPresentNotBefore.reset();
+    } else if (pendingPresentNotBefore) {
+        pendingPresentNotBefore = std::min(*pendingPresentNotBefore, *presentNotBefore);
+    }
     pendingReschedule = true;
 }
 
@@ -152,7 +162,9 @@ void RenderLoopPrivate::notifyFrameDropped()
     pendingFrameCount--;
 
     if (!inhibitCount && pendingReschedule) {
-        scheduleNextRepaint(std::nullopt);
+        const auto presentNotBefore = std::exchange(pendingPresentNotBefore, std::nullopt);
+        pendingReschedule = false;
+        scheduleNextRepaint(presentNotBefore);
     }
 }
 
@@ -184,7 +196,9 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
         scheduleRepaint(lastPresentationTimestamp, now);
     }
     if (!inhibitCount && pendingReschedule) {
-        scheduleNextRepaint(std::nullopt);
+        const auto presentNotBefore = std::exchange(pendingPresentNotBefore, std::nullopt);
+        pendingReschedule = false;
+        scheduleNextRepaint(presentNotBefore);
     }
 
     Q_EMIT q->framePresented(q, timestamp, mode);
@@ -297,7 +311,7 @@ void RenderLoop::scheduleRepaint(Item *item, OutputLayer *outputLayer, std::opti
     if (d->pendingFrameCount < effectiveMaxPendingFrameCount && !d->inhibitCount) {
         d->scheduleNextRepaint(presentNotBefore);
     } else {
-        d->delayScheduleRepaint();
+        d->delayScheduleRepaint(presentNotBefore);
     }
 }
 
