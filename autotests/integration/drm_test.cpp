@@ -218,7 +218,7 @@ public:
     bool renderAndWaitForShown(const QSize &size)
     {
         const auto formats = m_surfaceFeedback->formats().empty() ? Test::linuxDmabuf()->formats() : m_surfaceFeedback->formats();
-        m_buffer = m_device->allocator()->allocate(GraphicsBufferOptions{
+        m_buffer = m_device->drmDevice()->allocator()->allocate(GraphicsBufferOptions{
             .size = size,
             .format = DRM_FORMAT_XRGB8888,
             .modifiers = formats[DRM_FORMAT_XRGB8888],
@@ -247,7 +247,7 @@ public:
                     continue;
                 }
                 // scanout flag is currently implicit in GraphicsBufferOptions
-                m_buffer = device->allocator()->allocate(GraphicsBufferOptions{
+                m_buffer = device->drmDevice()->allocator()->allocate(GraphicsBufferOptions{
                     .size = m_buffer->size(),
                     .format = m_buffer->dmabufAttributes()->format,
                     .modifiers = tranche.formats[m_buffer->dmabufAttributes()->format],

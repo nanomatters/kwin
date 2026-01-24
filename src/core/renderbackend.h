@@ -133,7 +133,7 @@ public:
 
     virtual DrmDevice *drmDevice() const;
 
-    virtual bool testImportBuffer(GraphicsBuffer *buffer);
+    virtual bool testImportBuffer(GraphicsBuffer *buffer, dev_t targetDevice);
     virtual FormatModifierMap supportedFormats() const;
 };
 

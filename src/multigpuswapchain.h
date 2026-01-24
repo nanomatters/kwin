@@ -34,7 +34,8 @@ class KWIN_EXPORT MultiGpuSwapchain : public QObject
 {
     Q_OBJECT
 public:
-    explicit MultiGpuSwapchain(RenderDevice *copyDevice, DrmDevice *targetDevice, const std::shared_ptr<EglContext> &eglContext, std::shared_ptr<EglSwapchain> &&eglSwapchain, uint32_t sourceFormat);
+    explicit MultiGpuSwapchain(RenderDevice *copyDevice, DrmDevice *targetDevice, const std::shared_ptr<EglContext> &eglContext,
+                               std::shared_ptr<EglSwapchain> &&eglSwapchain, uint32_t sourceFormat);
     explicit MultiGpuSwapchain(RenderDevice *copyDevice, DrmDevice *targetDevice, std::unique_ptr<VulkanSwapchain> &&swapchain, uint32_t sourceFormat);
     ~MultiGpuSwapchain() override;
 
@@ -85,7 +86,7 @@ private:
     const uint32_t m_format;
     const uint64_t m_modifier;
     const QSize m_size;
-    bool m_needsRecreation = false;
     const uint32_t m_sourceFormat;
+    bool m_needsRecreation = false;
 };
 }

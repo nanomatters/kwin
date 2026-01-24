@@ -43,7 +43,7 @@ public:
     EglDisplay *eglDisplayObject() const;
     RenderDevice *renderDevice() const;
 
-    bool testImportBuffer(GraphicsBuffer *buffer) override;
+    bool testImportBuffer(GraphicsBuffer *buffer, dev_t targetDevice) override;
     FormatModifierMap supportedFormats() const override;
 
     QList<LinuxDmaBufV1Feedback::Tranche> tranches() const;
@@ -62,6 +62,7 @@ protected:
     bool hasClientExtension(const QByteArray &ext) const;
     bool isOpenGLES() const;
     bool createContext();
+    void updateDmabufTranches();
 
     bool ensureGlobalShareContext();
     ::EGLContext createContextInternal(::EGLContext sharedContext);

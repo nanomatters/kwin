@@ -109,7 +109,8 @@ std::unique_ptr<MultiGpuSwapchain> MultiGpuSwapchain::create(RenderDevice *copyD
     return nullptr;
 }
 
-MultiGpuSwapchain::MultiGpuSwapchain(RenderDevice *copyDevice, DrmDevice *targetDevice, const std::shared_ptr<EglContext> &eglContext, std::shared_ptr<EglSwapchain> &&eglSwapchain, uint32_t sourceFormat)
+MultiGpuSwapchain::MultiGpuSwapchain(RenderDevice *copyDevice, DrmDevice *targetDevice, const std::shared_ptr<EglContext> &eglContext,
+                                     std::shared_ptr<EglSwapchain> &&eglSwapchain, uint32_t sourceFormat)
     : m_targetDevice(targetDevice)
     , m_copyDevice(copyDevice)
     , m_copyContext(eglContext)
