@@ -389,9 +389,6 @@ static bool prepareDirectScanout(RenderView *view, LogicalOutput *logicalOutput,
         candidate->setScanoutHint(layer->scanoutDevice(), formats);
         return false;
     }
-    candidate->resetDamage();
-    // ensure the pixmap is updated when direct scanout ends
-    candidate->destroyTexture();
     return true;
 }
 
