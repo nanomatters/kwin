@@ -363,6 +363,9 @@ void DrmLutColorOp16::program(DrmAtomicCommit *commit, const std::deque<ColorOp:
         };
     }
     commit->addBlob(*m_prop, DrmBlob::create(m_prop->drmObject()->gpu(), m_components.data(), sizeof(drm_color_lut) * m_maxSize));
+    if (m_interpolationMode) {
+        commit->addEnum(*m_interpolationMode, Lut1DInterpolation::Linear);
+    }
     if (m_bypass) {
         commit->addProperty(*m_bypass, 0);
     }
@@ -498,6 +501,9 @@ void DrmLutColorOp32::program(DrmAtomicCommit *commit, const std::deque<ColorOp:
         };
     }
     commit->addBlob(*m_prop, DrmBlob::create(m_prop->drmObject()->gpu(), m_components.data(), sizeof(LutComponent32) * m_maxSize));
+    if (m_interpolationMode) {
+        commit->addEnum(*m_interpolationMode, Lut1DInterpolation::Linear);
+    }
     if (m_bypass) {
         commit->addProperty(*m_bypass, 0);
     }
@@ -776,6 +782,9 @@ void DrmLut3DColorOp::program(DrmAtomicCommit *commit, const std::deque<ColorOp:
         }
     }
     commit->addBlob(*m_value, DrmBlob::create(m_value->drmObject()->gpu(), m_components.data(), m_components.size() * sizeof(LutComponent32)));
+    if (m_interpolation) {
+        commit->addEnum(*m_interpolation, Lut3DInterpolation::Tetrahedal);
+    }
     if (m_bypass) {
         commit->addProperty(*m_bypass, 0);
     }
