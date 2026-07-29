@@ -59,9 +59,24 @@ OutputFrame::~OutputFrame()
     }
 }
 
-void OutputFrame::addFeedback(std::shared_ptr<PresentationFeedback> &&feedback)
+void OutputFrame::addFeedback(std::shared_ptr<PresentationFeedback> &&feedback, bool zeroCopy)
 {
-    m_feedbacks.push_back(std::move(feedback));
+    m_feedbacks.push_back(Feedback{
+        .feedback = std::move(feedback),
+        .zeroCopy = zeroCopy,
+    });
+}
+
+void OutputFrame::addDirectScanoutBuffer(GraphicsBuffer *buffer)
+{
+    if (buffer && !m_directScanoutBuffers.contains(buffer)) {
+        m_directScanoutBuffers.append(buffer);
+    }
+}
+
+bool OutputFrame::isDirectScanoutBuffer(GraphicsBuffer *buffer) const
+{
+    return m_directScanoutBuffers.contains(buffer);
 }
 
 std::optional<RenderTimeSpan> OutputFrame::queryRenderTime() const
@@ -84,7 +99,7 @@ std::optional<RenderTimeSpan> OutputFrame::queryRenderTime() const
     return ret;
 }
 
-void OutputFrame::presented(std::chrono::nanoseconds timestamp, PresentationMode mode)
+void OutputFrame::presented(std::chrono::nanoseconds timestamp, PresentationMode mode, uint64_t sequence)
 {
     Q_ASSERT(!m_presented);
     m_presented = true;
@@ -93,8 +108,8 @@ void OutputFrame::presented(std::chrono::nanoseconds timestamp, PresentationMode
     if (m_loop) {
         RenderLoopPrivate::get(m_loop)->notifyFrameCompleted(timestamp, renderTime, mode, this);
     }
-    for (const auto &feedback : m_feedbacks) {
-        feedback->presented(m_refreshDuration, timestamp, mode);
+    for (const auto &[feedback, zeroCopy] : m_feedbacks) {
+        feedback->presented(m_refreshDuration, timestamp, mode, sequence, zeroCopy);
     }
 }
 

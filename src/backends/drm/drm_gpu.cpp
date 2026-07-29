@@ -583,7 +583,19 @@ void DrmGpu::pageFlipHandler(int fd, unsigned int sequence, unsigned int sec, un
         }
         timestamp = std::chrono::steady_clock::now().time_since_epoch();
     }
-    commit->pageFlipped(timestamp);
+    uint64_t fullSequence = sequence;
+    const auto it = gpu->m_pageflipSequences.find(crtc_id);
+    if (it != gpu->m_pageflipSequences.end()) {
+        const uint32_t previous = uint32_t(*it);
+        fullSequence |= *it & 0xffffffff00000000ULL;
+        if (sequence < previous && previous - sequence > 0x80000000U) {
+            fullSequence += 1ULL << 32;
+        }
+        *it = fullSequence;
+    } else {
+        gpu->m_pageflipSequences.insert(crtc_id, fullSequence);
+    }
+    commit->pageFlipped(timestamp, fullSequence);
 }
 
 void DrmGpu::dispatchEvents()

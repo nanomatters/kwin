@@ -166,7 +166,7 @@ DrmPipeline::Error DrmPipeline::commitPipelinesAtomic(const QList<DrmPipeline *>
         for (const auto pipeline : pipelines) {
             pipeline->m_next.needsModeset = pipeline->m_pending.needsModeset = false;
         }
-        commit->pageFlipped(std::chrono::steady_clock::now().time_since_epoch());
+        commit->pageFlipped(std::chrono::steady_clock::now().time_since_epoch(), 0);
         return Error::None;
     }
     case CommitMode::Test: {

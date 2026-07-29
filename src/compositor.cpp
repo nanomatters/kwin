@@ -876,6 +876,16 @@ void Compositor::composite(RenderLoop *renderLoop)
         }
     }
 
+    if (result) {
+        for (const auto &layer : layers) {
+            if (layer.directScanout && layer.view->layer()->isEnabled()) {
+                if (SurfaceItem *candidate = layer.view->scanoutCandidate()) {
+                    frame->addDirectScanoutBuffer(candidate->buffer());
+                }
+            }
+        }
+    }
+
     scene->frame(primaryView, frame.get());
     primaryView->postPaint();
 

@@ -13,6 +13,7 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QVarLengthArray>
 #include <memory>
 
 namespace KWin
@@ -34,7 +35,8 @@ public:
     PresentationFeedback(PresentationFeedback &&move) = default;
     virtual ~PresentationFeedback() = default;
 
-    virtual void presented(std::chrono::nanoseconds refreshCycleDuration, std::chrono::nanoseconds timestamp, PresentationMode mode) = 0;
+    virtual void presented(std::chrono::nanoseconds refreshCycleDuration, std::chrono::nanoseconds timestamp,
+                           PresentationMode mode, uint64_t sequence, bool zeroCopy) = 0;
 };
 
 struct RenderTimeSpan
@@ -75,9 +77,11 @@ public:
     explicit OutputFrame(RenderLoop *loop, std::chrono::nanoseconds refreshDuration);
     ~OutputFrame();
 
-    void presented(std::chrono::nanoseconds timestamp, PresentationMode mode);
+    void presented(std::chrono::nanoseconds timestamp, PresentationMode mode, uint64_t sequence = 0);
 
-    void addFeedback(std::shared_ptr<PresentationFeedback> &&feedback);
+    void addFeedback(std::shared_ptr<PresentationFeedback> &&feedback, bool zeroCopy);
+    void addDirectScanoutBuffer(GraphicsBuffer *buffer);
+    bool isDirectScanoutBuffer(GraphicsBuffer *buffer) const;
 
     void setContentType(ContentType type);
     std::optional<ContentType> contentType() const;
@@ -107,7 +111,13 @@ private:
     const std::chrono::nanoseconds m_refreshDuration;
     const std::chrono::steady_clock::time_point m_targetPageflipTime;
     const std::chrono::nanoseconds m_predictedRenderTime;
-    std::vector<std::shared_ptr<PresentationFeedback>> m_feedbacks;
+    struct Feedback
+    {
+        std::shared_ptr<PresentationFeedback> feedback;
+        bool zeroCopy;
+    };
+    std::vector<Feedback> m_feedbacks;
+    QVarLengthArray<GraphicsBuffer *, 4> m_directScanoutBuffers;
     std::optional<ContentType> m_contentType;
     PresentationMode m_presentationMode = PresentationMode::VSync;
     std::vector<std::unique_ptr<RenderTimeQuery>> m_renderTimeQueries;
