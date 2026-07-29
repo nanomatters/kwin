@@ -243,7 +243,7 @@ void SurfaceItemWayland::handleFramePainted(LogicalOutput *output, OutputFrame *
     if (frame) {
         // FIXME make frame always valid
         if (auto feedback = m_surface->presentationFeedback(output)) {
-            frame->addFeedback(std::move(feedback));
+            frame->addFeedback(std::move(feedback), frame->isDirectScanoutBuffer(buffer()));
         }
     }
     // TODO only call this once per refresh cycle

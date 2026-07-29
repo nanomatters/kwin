@@ -186,6 +186,7 @@ private:
     std::unordered_map<DrmPipeline *, std::shared_ptr<OutputFrame>> m_pendingModesetFrames;
     bool m_inModeset = false;
     QHash<GraphicsBuffer *, std::weak_ptr<DrmFramebufferData>> m_fbCache;
+    QHash<uint32_t, uint64_t> m_pageflipSequences;
     std::vector<std::unique_ptr<DrmCommit>> m_defunctCommits;
     QTimer m_delayedModesetTimer;
 };

@@ -64,7 +64,8 @@ PresentationTimeFeedback::~PresentationTimeFeedback()
     }
 }
 
-void PresentationTimeFeedback::presented(std::chrono::nanoseconds refreshCycleDuration, std::chrono::nanoseconds timestamp, PresentationMode mode)
+void PresentationTimeFeedback::presented(std::chrono::nanoseconds refreshCycleDuration, std::chrono::nanoseconds timestamp,
+                                         PresentationMode mode, uint64_t sequence, bool zeroCopy)
 {
     if (m_presented) {
         return;
@@ -80,6 +81,9 @@ void PresentationTimeFeedback::presented(std::chrono::nanoseconds refreshCycleDu
     if (mode == PresentationMode::VSync || mode == PresentationMode::AdaptiveSync) {
         flags |= WP_PRESENTATION_FEEDBACK_KIND_VSYNC;
     }
+    if (zeroCopy) {
+        flags |= WP_PRESENTATION_FEEDBACK_KIND_ZERO_COPY;
+    }
 
     wl_resource *resource;
     wl_resource *tmp;
@@ -90,7 +94,8 @@ void PresentationTimeFeedback::presented(std::chrono::nanoseconds refreshCycleDu
             // version 1 requires sending zero when the refresh rate isn't stable
             refreshDuration = 0;
         }
-        wp_presentation_feedback_send_presented(resource, tvSecHi, tvSecLo, tvNsec, refreshDuration, 0, 0, flags);
+        wp_presentation_feedback_send_presented(resource, tvSecHi, tvSecLo, tvNsec, refreshDuration,
+                                                uint32_t(sequence >> 32), uint32_t(sequence), flags);
         wl_resource_destroy(resource);
     }
 }

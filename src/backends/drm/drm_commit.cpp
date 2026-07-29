@@ -166,7 +166,7 @@ bool DrmAtomicCommit::doCommit(uint32_t flags)
     return drmIoctl(m_gpu->fd(), DRM_IOCTL_MODE_ATOMIC, &commitData) == 0;
 }
 
-void DrmAtomicCommit::pageFlipped(std::chrono::nanoseconds timestamp)
+void DrmAtomicCommit::pageFlipped(std::chrono::nanoseconds timestamp, uint64_t sequence)
 {
     Q_ASSERT(QThread::currentThread() == QCoreApplication::instance()->thread());
     for (const auto &[plane, buffer] : m_buffers) {
@@ -184,7 +184,7 @@ void DrmAtomicCommit::pageFlipped(std::chrono::nanoseconds timestamp)
         }
     }
     for (const auto &frame : frames) {
-        frame->presented(timestamp, m_mode);
+        frame->presented(timestamp, m_mode, sequence);
     }
     m_frames.clear();
     for (const auto pipeline : std::as_const(m_pipelines)) {
@@ -306,7 +306,7 @@ bool DrmLegacyCommit::doPageflip(PresentationMode mode)
     return drmModePageFlip(gpu()->fd(), m_crtc->id(), m_buffer->framebufferId(), flags, this) == 0;
 }
 
-void DrmLegacyCommit::pageFlipped(std::chrono::nanoseconds timestamp)
+void DrmLegacyCommit::pageFlipped(std::chrono::nanoseconds timestamp, uint64_t sequence)
 {
     Q_ASSERT(QThread::currentThread() == QCoreApplication::instance()->thread());
     m_crtc->setCurrent(m_buffer);
@@ -314,7 +314,7 @@ void DrmLegacyCommit::pageFlipped(std::chrono::nanoseconds timestamp)
         return;
     }
     if (m_frame) {
-        m_frame->presented(timestamp, m_mode);
+        m_frame->presented(timestamp, m_mode, sequence);
         m_frame.reset();
     }
     m_pipeline->pageFlipped(timestamp);
