@@ -868,7 +868,7 @@ void WaylandServer::setRenderBackend(RenderBackend *backend)
     if (backend->drmDevice()->supportsSyncObjTimelines()) {
         // ensure the DRM_IOCTL_SYNCOBJ_EVENTFD ioctl is supported
         const auto linuxVersion = linuxKernelVersion();
-        if (linuxVersion.majorVersion() < 6 && linuxVersion.minorVersion() < 6) {
+        if (linuxVersion.majorVersion() < 6 || (linuxVersion.majorVersion() == 6 && linuxVersion.minorVersion() < 6)) {
             return;
         }
         // also ensure the implementation isn't totally broken, see https://lists.freedesktop.org/archives/dri-devel/2024-January/439101.html
