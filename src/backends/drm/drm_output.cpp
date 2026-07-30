@@ -109,6 +109,11 @@ DrmLease *DrmOutput::lease() const
     return m_lease;
 }
 
+void DrmOutput::setDesiredPresentationMode(PresentationMode mode)
+{
+    m_desiredPresentationMode = mode;
+}
+
 bool DrmOutput::shouldDisableNonPrimaryPlanes() const
 {
     // The kernel rejects async commits that change anything but the primary plane FB_ID

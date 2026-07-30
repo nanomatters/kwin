@@ -292,6 +292,7 @@ public:
     virtual void setAutoRotateAvailable(bool isAvailable);
     virtual void setAutoBrightnessAvailable(bool isAvailable);
 
+    virtual void setDesiredPresentationMode(PresentationMode mode);
     virtual bool presentAsync(OutputLayer *layer, std::optional<std::chrono::nanoseconds> allowedVrrDelay);
     virtual bool testPresentation(const std::shared_ptr<OutputFrame> &frame) = 0;
     virtual bool present(const QList<OutputLayer *> &layersToUpdate, const std::shared_ptr<OutputFrame> &frame) = 0;

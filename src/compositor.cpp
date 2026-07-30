@@ -714,12 +714,17 @@ void Compositor::composite(RenderLoop *renderLoop)
 
     const bool wantsAdaptiveSync = activeWindow && activeWindow->frameGeometry().intersects(primaryView->viewport()) && activeWindow->wantsAdaptiveSync();
     const bool vrr = (output->capabilities() & BackendOutput::Capability::Vrr) && (output->vrrPolicy() == VrrPolicy::Always || (output->vrrPolicy() == VrrPolicy::Automatic && wantsAdaptiveSync));
-    const bool tearing = (output->capabilities() & BackendOutput::Capability::Tearing) && options->allowTearing() && activeFullscreenItem && activeWindow->wantsTearing(isTearingRequested(activeFullscreenItem));
-    if (vrr) {
-        frame->setPresentationMode(tearing ? PresentationMode::AdaptiveAsync : PresentationMode::AdaptiveSync);
-    } else {
-        frame->setPresentationMode(tearing ? PresentationMode::Async : PresentationMode::VSync);
-    }
+    const bool tearingRequested = (output->capabilities() & BackendOutput::Capability::Tearing) && options->allowTearing() && activeFullscreenItem && activeWindow->wantsTearing(isTearingRequested(activeFullscreenItem));
+    const auto setPresentationMode = [frame, output, vrr](bool tearing) {
+        if (vrr) {
+            frame->setPresentationMode(tearing ? PresentationMode::AdaptiveAsync : PresentationMode::AdaptiveSync);
+        } else {
+            frame->setPresentationMode(tearing ? PresentationMode::Async : PresentationMode::VSync);
+        }
+        output->setDesiredPresentationMode(frame->presentationMode());
+    };
+    // Layer assignments may disable tearing below.
+    setPresentationMode(tearingRequested);
 
     primaryView->prePaint(frame.get());
 
@@ -770,8 +775,15 @@ void Compositor::composite(RenderLoop *renderLoop)
     }
 
     std::unordered_set<OutputLayer *> toUpdate;
-    auto [layers, result] = setupLayers(primaryView, logicalOutput, output, allowedOutputLayers, *idealLayerAssignments,
-                                        frame, SetupType::Ideal, toUpdate);
+    const auto setup = [&](const auto &assignments, SetupType type) {
+        const bool hardwareCursor = std::ranges::any_of(assignments, [](const auto &assignment) {
+            return assignment.first->type() != OutputLayerType::Primary
+                && qobject_cast<CursorItem *>(assignment.second) != nullptr;
+        });
+        setPresentationMode(tearingRequested && !hardwareCursor);
+        return setupLayers(primaryView, logicalOutput, output, allowedOutputLayers, assignments, frame, type, toUpdate);
+    };
+    auto [layers, result] = setup(*idealLayerAssignments, SetupType::Ideal);
 
     // test and downgrade the configuration until the test is successful
     if (!result) {
@@ -781,16 +793,14 @@ void Compositor::composite(RenderLoop *renderLoop)
         });
         if (!fallback1) {
             idealLayerAssignments = assignLayers(primaryView, scenePlusCursor, allowedOutputLayers);
-            std::tie(layers, result) = setupLayers(primaryView, logicalOutput, output, allowedOutputLayers, *idealLayerAssignments,
-                                                   frame, SetupType::Fallback, toUpdate);
+            std::tie(layers, result) = setup(*idealLayerAssignments, SetupType::Fallback);
         }
 
         // if this still doesn't work, fall back to primary only
         const bool fallback2 = layers.size() == 1 && layers.front().view == primaryView;
         if (!result && !fallback2) {
             idealLayerAssignments = assignLayers(primaryView, sceneOnly, allowedOutputLayers);
-            std::tie(layers, result) = setupLayers(primaryView, logicalOutput, output, allowedOutputLayers, *idealLayerAssignments,
-                                                   frame, SetupType::Fallback, toUpdate);
+            std::tie(layers, result) = setup(*idealLayerAssignments, SetupType::Fallback);
         }
     }
 
@@ -846,8 +856,7 @@ void Compositor::composite(RenderLoop *renderLoop)
         });
         if (!fallback1) {
             idealLayerAssignments = assignLayers(primaryView, scenePlusCursor, allowedOutputLayers);
-            std::tie(layers, result) = setupLayers(primaryView, logicalOutput, output, allowedOutputLayers, *idealLayerAssignments,
-                                                   frame, SetupType::Fallback, toUpdate);
+            std::tie(layers, result) = setup(*idealLayerAssignments, SetupType::Fallback);
             if (result) {
                 renderLayers();
                 result = output->present(toUpdate | std::ranges::to<QList>(), frame);
@@ -858,8 +867,7 @@ void Compositor::composite(RenderLoop *renderLoop)
         const bool fallback2 = layers.size() == 1 && layers.front().view == primaryView;
         if (!result && !fallback2) {
             idealLayerAssignments = assignLayers(primaryView, sceneOnly, allowedOutputLayers);
-            std::tie(layers, result) = setupLayers(primaryView, logicalOutput, output, allowedOutputLayers, *idealLayerAssignments,
-                                                   frame, SetupType::Fallback, toUpdate);
+            std::tie(layers, result) = setup(*idealLayerAssignments, SetupType::Fallback);
             if (result) {
                 renderLayers();
                 result = output->present(toUpdate | std::ranges::to<QList>(), frame);

@@ -756,6 +756,10 @@ std::optional<uint32_t> BackendOutput::minVrrRefreshRateHz() const
     return m_information.minVrrRefreshRateHz;
 }
 
+void BackendOutput::setDesiredPresentationMode(PresentationMode)
+{
+}
+
 bool BackendOutput::presentAsync(OutputLayer *layer, std::optional<std::chrono::nanoseconds> allowedVrrDelay)
 {
     return false;
