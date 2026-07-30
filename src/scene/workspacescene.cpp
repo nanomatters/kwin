@@ -398,10 +398,6 @@ QList<Item *> WorkspaceScene::layerCandidates(ssize_t maxTotalCount) const
     // as the highest priority item for an overlay, since its responsiveness
     // is especially noticeable to users.
 
-    if (effects->blocksDirectScanout()) {
-        return {containerItem()};
-    }
-
     const auto fallback = [this, maxTotalCount]() {
         QList<Item *> ret;
         if (maxTotalCount > 1
@@ -413,6 +409,10 @@ QList<Item *> WorkspaceScene::layerCandidates(ssize_t maxTotalCount) const
         ret.push_back(containerItem());
         return ret;
     };
+    if (effects->blocksDirectScanout()) {
+        return fallback();
+    }
+
     Region occupied;
     Region opaque;
     Region effected;
