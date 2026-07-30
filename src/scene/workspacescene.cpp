@@ -234,8 +234,7 @@ static bool checkForBlackBackground(Item *background)
 
 static Rect mapToDevice(SceneView *view, Item *item, const RectF &itemLocal)
 {
-    const RectF localLogical = item->mapToView(itemLocal, view).translated(-view->viewport().topLeft());
-    return localLogical.scaled(view->scale()).rounded();
+    return view->mapToDeviceCoordinates(item->mapToView(itemLocal, view)).rounded();
 }
 
 static Region mapToDevice(SceneView *view, Item *item, const RegionF &itemLocal)
