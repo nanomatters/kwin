@@ -32,7 +32,7 @@ void VulkanRenderTimeQuery::end(vk::raii::CommandBuffer &buffer)
     buffer.writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, m_pool, 1);
 }
 
-std::optional<RenderTimeSpan> VulkanRenderTimeQuery::query()
+std::optional<RenderTimeSpan> VulkanRenderTimeQuery::query(std::chrono::nanoseconds)
 {
     if (!m_device) {
         return std::nullopt;

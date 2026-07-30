@@ -34,7 +34,7 @@ void CpuRenderTimeQuery::end()
     m_end = std::chrono::steady_clock::now();
 }
 
-std::optional<RenderTimeSpan> CpuRenderTimeQuery::query()
+std::optional<RenderTimeSpan> CpuRenderTimeQuery::query(std::chrono::nanoseconds)
 {
     Q_ASSERT(m_end);
     return RenderTimeSpan{
@@ -81,16 +81,20 @@ bool OutputFrame::isDirectScanoutBuffer(GraphicsBuffer *buffer) const
 
 std::optional<RenderTimeSpan> OutputFrame::queryRenderTime() const
 {
+    const auto minimumTime = m_refreshDuration.count()
+        ? std::min(std::chrono::milliseconds(2), m_refreshDuration / 4)
+        : std::chrono::milliseconds(2);
+
     if (m_renderTimeQueries.empty()) {
         return RenderTimeSpan{};
     }
-    const auto first = m_renderTimeQueries.front()->query();
+    const auto first = m_renderTimeQueries.front()->query(minimumTime);
     if (!first) {
         return std::nullopt;
     }
     RenderTimeSpan ret = *first;
     for (const auto &query : m_renderTimeQueries | std::views::drop(1)) {
-        const auto opt = query->query();
+        const auto opt = query->query(minimumTime);
         if (!opt) {
             return std::nullopt;
         }

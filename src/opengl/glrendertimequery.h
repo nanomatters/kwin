@@ -32,7 +32,7 @@ public:
     /**
      * fetches the result of the query. If rendering is not done yet, this will block!
      */
-    std::optional<RenderTimeSpan> query() override;
+    std::optional<RenderTimeSpan> query(std::chrono::nanoseconds minimumTime) override;
 
 private:
     const std::weak_ptr<EglContext> m_context;

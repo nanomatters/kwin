@@ -30,7 +30,7 @@ public:
     /**
      * fetches the result of the query. If rendering is not done yet, this will block!
      */
-    std::optional<RenderTimeSpan> query() override;
+    std::optional<RenderTimeSpan> query(std::chrono::nanoseconds minimumTime) override;
 
     static std::unique_ptr<VulkanRenderTimeQuery> begin(VulkanDevice *device, vk::raii::CommandBuffer &buffer, uint32_t queueFamily);
 

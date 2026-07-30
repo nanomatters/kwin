@@ -14,6 +14,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QVarLengthArray>
+#include <chrono>
 #include <memory>
 
 namespace KWin
@@ -51,7 +52,7 @@ class KWIN_EXPORT RenderTimeQuery
 {
 public:
     virtual ~RenderTimeQuery() = default;
-    virtual std::optional<RenderTimeSpan> query() = 0;
+    virtual std::optional<RenderTimeSpan> query(std::chrono::nanoseconds minimumTime) = 0;
 };
 
 class KWIN_EXPORT CpuRenderTimeQuery : public RenderTimeQuery
@@ -64,7 +65,7 @@ public:
 
     void end();
 
-    std::optional<RenderTimeSpan> query() override;
+    std::optional<RenderTimeSpan> query(std::chrono::nanoseconds minimumTime) override;
 
 private:
     const std::chrono::steady_clock::time_point m_start;
