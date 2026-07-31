@@ -146,7 +146,7 @@ FormatModifierMap DrmPipelineLayer::supportedAsyncDrmFormats() const
     if (m_plane) {
         return m_plane->tearingFormats();
     } else {
-        return {};
+        return supportedDrmFormats();
     }
 }
 
