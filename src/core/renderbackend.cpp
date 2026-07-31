@@ -82,8 +82,8 @@ bool OutputFrame::isDirectScanoutBuffer(GraphicsBuffer *buffer) const
 std::optional<RenderTimeSpan> OutputFrame::queryRenderTime() const
 {
     const auto minimumTime = m_refreshDuration.count()
-        ? std::min(std::chrono::milliseconds(2), m_refreshDuration / 4)
-        : std::chrono::milliseconds(2);
+        ? std::min(std::chrono::nanoseconds(std::chrono::milliseconds(2)), m_refreshDuration / 4)
+        : std::chrono::nanoseconds(std::chrono::milliseconds(2));
 
     if (m_renderTimeQueries.empty()) {
         return RenderTimeSpan{};

@@ -76,9 +76,11 @@ DrmCommitThread::DrmCommitThread(DrmGpu *gpu, const QString &name)
                 continue;
             }
             const auto now = std::chrono::steady_clock::now();
-            if (m_targetPageflipTime > now + m_safetyMargin) {
+            const auto targetPageflipTime = m_targetPageflipTime;
+            const auto safetyMargin = this->safetyMargin();
+            if (targetPageflipTime > now + safetyMargin) {
                 lock.unlock();
-                std::this_thread::sleep_until(m_targetPageflipTime - m_safetyMargin);
+                std::this_thread::sleep_until(targetPageflipTime - safetyMargin);
                 lock.lock();
                 // the main thread might've modified the list
                 if (m_commits.empty()) {
@@ -177,7 +179,7 @@ void DrmCommitThread::submit()
         }
         const auto maximumReasonableMargin = std::min<std::chrono::nanoseconds>(3ms, m_minVblankInterval / 2);
         m_additionalSafetyMargin = std::clamp(m_additionalSafetyMargin, 0ns, maximumReasonableMargin);
-        m_safetyMargin = m_baseSafetyMargin + m_additionalSafetyMargin;
+        m_safetyMargin.store((m_baseSafetyMargin + m_additionalSafetyMargin).count(), std::memory_order_relaxed);
     } else {
         if (m_commits.size() > 1) {
             // the failure may have been because of the reordering of commits
@@ -342,7 +344,7 @@ void DrmCommitThread::addCommit(std::unique_ptr<DrmAtomicCommit> &&commit)
         newTarget = estimateNextVblank(now);
     }
     m_targetPageflipTime = std::max(m_targetPageflipTime, newTarget);
-    m_commits.back()->setDeadline(m_targetPageflipTime - m_safetyMargin);
+    m_commits.back()->setDeadline(m_targetPageflipTime - safetyMargin());
     m_commitPending.notify_all();
 }
 
@@ -368,7 +370,7 @@ void DrmCommitThread::setModeInfo(uint32_t maximum, std::chrono::nanoseconds vbl
     // the kernel rejects commits that happen during vblank
     // the 1.5ms on top of that was chosen experimentally, for the time it takes to commit + scheduling inaccuracies
     m_baseSafetyMargin = vblankTime + s_safetyMarginMinimum;
-    m_safetyMargin = m_baseSafetyMargin + m_additionalSafetyMargin;
+    m_safetyMargin.store((m_baseSafetyMargin + m_additionalSafetyMargin).count(), std::memory_order_relaxed);
 }
 
 void DrmCommitThread::pageFlipped(std::chrono::nanoseconds timestamp)
@@ -401,7 +403,7 @@ TimePoint DrmCommitThread::estimateNextVblank(TimePoint now) const
 
 std::chrono::nanoseconds DrmCommitThread::safetyMargin() const
 {
-    return m_safetyMargin;
+    return std::chrono::nanoseconds(m_safetyMargin.load(std::memory_order_relaxed));
 }
 
 void DrmCommitThread::handlePing()
