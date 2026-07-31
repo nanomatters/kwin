@@ -47,6 +47,7 @@ public:
     DrmPlane *plane() const;
 
 protected:
+    FormatModifierMap formatsForKwinBuffers() const;
     DrmPipeline *pipeline() const;
     DrmGpu *gpu() const;
     DrmOutput *drmOutput() const;

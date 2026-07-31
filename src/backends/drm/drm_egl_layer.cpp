@@ -55,7 +55,7 @@ std::optional<OutputLayerBeginFrameInfo> EglGbmLayer::doBeginFrame()
     m_scanoutBuffer.reset();
     return m_surface.startRendering(targetRect().size(),
                                     drmOutput()->transform().combine(OutputTransform::FlipY),
-                                    supportedDrmFormats(),
+                                    formatsForKwinBuffers(),
                                     drmOutput()->blendingColor(),
                                     drmOutput()->layerBlendingColor(),
                                     drmOutput()->needsShadowBuffer() ? pipeline()->iccProfile() : nullptr,
@@ -78,7 +78,7 @@ bool EglGbmLayer::preparePresentationTest()
         return false;
     }
     m_scanoutBuffer.reset();
-    return m_surface.renderTestBuffer(targetRect().size(), supportedDrmFormats(), drmOutput()->nextState().colorPowerTradeoff, m_requiredAlphaBits) != nullptr;
+    return m_surface.renderTestBuffer(targetRect().size(), formatsForKwinBuffers(), drmOutput()->nextState().colorPowerTradeoff, m_requiredAlphaBits) != nullptr;
 }
 
 static const auto s_allowHardwareRotation = environmentVariableBoolValue("KWIN_ENABLE_HW_ROTATION");

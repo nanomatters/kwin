@@ -125,16 +125,20 @@ static const FormatModifierMap s_legacyCursorFormats = {{DRM_FORMAT_ARGB8888, {D
 FormatModifierMap DrmPipelineLayer::supportedDrmFormats() const
 {
     if (m_plane) {
-        if (m_plane->gpu()->forceLowBandwidthMode() && m_type == OutputLayerType::Primary) {
-            return m_plane->lowBandwidthFormats();
-        } else {
-            return m_plane->formats();
-        }
+        return m_plane->formats();
     } else if (m_type == OutputLayerType::CursorOnly) {
         return s_legacyCursorFormats;
     } else {
         return s_legacyFormats;
     }
+}
+
+FormatModifierMap DrmPipelineLayer::formatsForKwinBuffers() const
+{
+    if (m_plane && m_plane->gpu()->forceLowBandwidthMode() && m_type == OutputLayerType::Primary) {
+        return m_plane->lowBandwidthFormats();
+    }
+    return supportedDrmFormats();
 }
 
 FormatModifierMap DrmPipelineLayer::supportedAsyncDrmFormats() const

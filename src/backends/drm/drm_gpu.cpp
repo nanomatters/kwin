@@ -415,6 +415,7 @@ static const std::chrono::milliseconds s_checkCrtcTimeout = environmentVariableI
 
 DrmPipeline::Error DrmGpu::testPendingConfiguration()
 {
+    const bool previousLowBandwidthMode = m_forceLowBandwidthMode;
     QList<DrmConnector *> connectors;
     QList<DrmCrtc *> crtcs;
     // only change resources that aren't currently leased away
@@ -442,7 +443,11 @@ DrmPipeline::Error DrmGpu::testPendingConfiguration()
     }
     m_forceLowBandwidthMode = false;
     auto err = checkCrtcAssignment(connectors, crtcs, std::chrono::steady_clock::now() + s_checkCrtcTimeout);
-    if (err == DrmPipeline::Error::None || err == DrmPipeline::Error::NoPermission || err == DrmPipeline::Error::FramePending) {
+    if (err == DrmPipeline::Error::None) {
+        return err;
+    }
+    if (err == DrmPipeline::Error::NoPermission || err == DrmPipeline::Error::FramePending) {
+        m_forceLowBandwidthMode = previousLowBandwidthMode;
         return err;
     }
     const bool hasPreferAccuracy = std::ranges::any_of(m_drmOutputs, [](const auto &output) {
@@ -451,9 +456,15 @@ DrmPipeline::Error DrmGpu::testPendingConfiguration()
     if (m_addFB2ModifiersSupported || hasPreferAccuracy) {
         // We currently don't have any information about why the output config
         // got rejected; one possibility is missing memory bandwidth.
+        qCWarning(KWIN_DRM) << "Output configuration failed, retrying with low-bandwidth primary buffers";
         m_forceLowBandwidthMode = true;
         err = checkCrtcAssignment(connectors, crtcs, std::chrono::steady_clock::now() + s_checkCrtcTimeout);
+        if (err == DrmPipeline::Error::None) {
+            qCWarning(KWIN_DRM) << "Using low-bandwidth primary buffers";
+            return err;
+        }
     }
+    m_forceLowBandwidthMode = previousLowBandwidthMode;
     return err;
 }
 
