@@ -153,7 +153,14 @@ void DrmCommitThread::submit()
 {
     DrmAtomicCommit *commit = m_commits.front().get();
     const auto vrr = commit->isVrr();
-    const bool success = commit->commit();
+    bool success;
+    if (DrmCommit::timingEnabled()) {
+        commit->beginTiming(m_targetPageflipTime - m_baseSafetyMargin);
+        success = commit->commit();
+        commit->finishTiming();
+    } else {
+        success = commit->commit();
+    }
     if (success) {
         m_vrr = vrr.value_or(m_vrr);
         m_tearing = commit->isTearing();
@@ -335,8 +342,11 @@ DrmCommitThread::~DrmCommitThread()
 void DrmCommitThread::addCommit(std::unique_ptr<DrmAtomicCommit> &&commit)
 {
     std::unique_lock lock(m_mutex);
-    m_commits.push_back(std::move(commit));
     const auto now = std::chrono::steady_clock::now();
+    if (DrmCommit::timingEnabled()) {
+        commit->setQueued(now);
+    }
+    m_commits.push_back(std::move(commit));
     TimePoint newTarget;
     if (m_tearing) {
         newTarget = now;
@@ -363,15 +373,18 @@ void DrmCommitThread::clearDroppedCommits()
 
 // TODO reduce the default for this, once we have a more accurate way to know when an atomic commit
 // is actually applied. Waiting for the commit returning seems to work on Intel and AMD, but not with NVidia
-static const std::chrono::microseconds s_safetyMarginMinimum{environmentVariableIntValue("KWIN_DRM_OVERRIDE_SAFETY_MARGIN").value_or(1000)};
+static const auto s_safetyMarginOverride = environmentVariableIntValue("KWIN_DRM_OVERRIDE_SAFETY_MARGIN");
 
 void DrmCommitThread::setModeInfo(uint32_t maximum, std::chrono::nanoseconds vblankTime)
 {
     std::unique_lock lock(m_mutex);
     m_minVblankInterval = std::chrono::nanoseconds(1'000'000'000'000ull / maximum);
-    // the kernel rejects commits that happen during vblank
-    // the 1.5ms on top of that was chosen experimentally, for the time it takes to commit + scheduling inaccuracies
-    m_baseSafetyMargin = vblankTime + s_safetyMarginMinimum;
+    // The kernel rejects commits that happen during vblank.
+    const auto defaultMargin = std::min(std::chrono::nanoseconds(1ms), m_minVblankInterval / 8);
+    const auto minimumMargin = s_safetyMarginOverride
+        ? std::chrono::nanoseconds(std::chrono::microseconds(*s_safetyMarginOverride))
+        : defaultMargin;
+    m_baseSafetyMargin = vblankTime + minimumMargin;
     m_safetyMargin.store((m_baseSafetyMargin + m_additionalSafetyMargin).count(), std::memory_order_relaxed);
 }
 

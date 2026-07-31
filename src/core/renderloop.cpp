@@ -60,8 +60,8 @@ void RenderLoopPrivate::scheduleRepaint(std::chrono::nanoseconds lastTargetTimes
     std::chrono::nanoseconds targetTimestamp;
 
     // Estimate when it's a good time to perform the next compositing cycle.
-    // the 1ms on top of the safety margin is required for timer and scheduler inaccuracies
-    std::chrono::nanoseconds expectedCompositingTime = std::min(renderJournal.result() + safetyMargin + 1ms, 2 * vblankInterval);
+    const auto prediction = renderJournal.result(lastRenderMode, vblankInterval);
+    std::chrono::nanoseconds expectedCompositingTime = std::min(prediction.renderTime + safetyMargin + prediction.wakeLatency, 2 * vblankInterval);
 
     if (presentationMode == PresentationMode::VSync) {
         // normal presentation: pageflips only happen at vblank
@@ -140,7 +140,8 @@ void RenderLoopPrivate::scheduleRepaint(std::chrono::nanoseconds lastTargetTimes
 
     lastPresentNotBefore = presentNotBefore;
 
-    const std::chrono::nanoseconds nextRenderTimestamp = nextPresentationTimestamp - expectedCompositingTime;
+    nextRenderPrediction = prediction;
+    nextRenderTimestamp = nextPresentationTimestamp - expectedCompositingTime;
     compositeTimer.start(nextRenderTimestamp);
 }
 
@@ -172,14 +173,25 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
 {
     if (output && s_printDebugInfo && !m_debugOutput) {
         m_debugOutput = std::fstream(qPrintable("kwin perf statistics " + output->name() + ".csv"), std::ios::out);
-        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time\n";
+        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,scheduled render timestamp,render start,render end,"
+                          "commit queued,commit start,commit end,commit target,safety margin,refresh duration,vrr,tearing,"
+                          "primary direct scanout,predicted render time,predicted wake latency\n";
     }
     if (m_debugOutput) {
         auto times = renderTime.value_or(RenderTimeSpan{});
+        const auto commitQueued = frame->commitQueued().value_or(std::chrono::steady_clock::time_point{});
+        auto commit = frame->commitTiming().value_or(OutputFrame::CommitTiming{});
         const bool vrr = mode == PresentationMode::AdaptiveSync || mode == PresentationMode::AdaptiveAsync;
         const bool tearing = mode == PresentationMode::Async || mode == PresentationMode::AdaptiveAsync;
-        *m_debugOutput << frame->targetPageflipTime().time_since_epoch().count() << "," << timestamp.count() << "," << times.start.time_since_epoch().count() << "," << times.end.time_since_epoch().count()
-                       << "," << safetyMargin.count() << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0) << "," << frame->predictedRenderTime().count() << "\n";
+        *m_debugOutput << frame->targetPageflipTime().time_since_epoch().count() << "," << timestamp.count()
+                       << "," << frame->scheduledRenderTime().time_since_epoch().count()
+                       << "," << times.start.time_since_epoch().count() << "," << times.end.time_since_epoch().count()
+                       << "," << commitQueued.time_since_epoch().count()
+                       << "," << commit.start.time_since_epoch().count() << "," << commit.end.time_since_epoch().count()
+                       << "," << commit.target.time_since_epoch().count() << "," << safetyMargin.count()
+                       << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0)
+                       << "," << (frame->primaryDirectScanout() ? 1 : 0) << "," << frame->predictedRenderTime().count()
+                       << "," << frame->predictedWakeLatency().count() << "\n";
     }
 
     Q_ASSERT(pendingFrameCount > 0);
@@ -187,9 +199,17 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
 
     notifyVblank(timestamp);
 
+    const auto renderMode = frame->primaryDirectScanout() ? RenderJournal::Mode::DirectScanout : RenderJournal::Mode::Composited;
     if (renderTime) {
-        renderJournal.add(renderTime->end - renderTime->start, timestamp);
+        const auto wakeLatency = renderTime->start - frame->scheduledRenderTime();
+        renderJournal.add(renderTime->end - renderTime->start, wakeLatency, timestamp, renderMode);
+        if (mode == PresentationMode::VSync) {
+            const bool lateFlip = timestamp > frame->targetPageflipTime().time_since_epoch() + frame->refreshDuration() / 2;
+            renderJournal.notifyFrameOutcome(renderMode, frame->refreshDuration(), timestamp, lateFlip,
+                                             wakeLatency, frame->predictedWakeLatency());
+        }
     }
+    lastRenderMode = renderMode;
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
     if (compositeTimer.isActive() && now > lastPresentNotBefore) {
         // reschedule to match the new timestamp and render time
@@ -344,6 +364,11 @@ std::chrono::nanoseconds RenderLoop::nextPresentationTimestamp() const
     return d->nextPresentationTimestamp;
 }
 
+std::chrono::steady_clock::time_point RenderLoop::nextRenderTimestamp() const
+{
+    return std::chrono::steady_clock::time_point(d->nextRenderTimestamp);
+}
+
 void RenderLoop::setPresentationMode(PresentationMode mode)
 {
     if (mode != d->presentationMode) {
@@ -359,7 +384,12 @@ void RenderLoop::setMaxPendingFrameCount(uint32_t maxCount)
 
 std::chrono::nanoseconds RenderLoop::predictedRenderTime() const
 {
-    return d->renderJournal.result();
+    return d->nextRenderPrediction.renderTime;
+}
+
+std::chrono::nanoseconds RenderLoop::predictedWakeLatency() const
+{
+    return d->nextRenderPrediction.wakeLatency;
 }
 
 } // namespace KWin

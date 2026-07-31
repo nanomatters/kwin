@@ -13,6 +13,7 @@
 
 #include <QHash>
 #include <chrono>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -36,6 +37,8 @@ class OutputFrame;
 
 class DrmCommit
 {
+    friend class DrmCommitThread;
+
 public:
     virtual ~DrmCommit();
 
@@ -44,10 +47,27 @@ public:
     void setDefunct();
 
 protected:
+    struct CommitTiming
+    {
+        std::chrono::steady_clock::time_point start;
+        std::chrono::steady_clock::time_point end;
+        std::chrono::steady_clock::time_point target;
+    };
+
     DrmCommit(DrmGpu *gpu);
+    DrmCommit(const DrmCommit &copy);
+
+    static bool timingEnabled();
+    void beginTiming(std::chrono::steady_clock::time_point target);
+    void finishTiming();
+    std::optional<CommitTiming> timing() const;
 
     DrmGpu *const m_gpu;
     bool m_defunct = false;
+    mutable std::mutex m_timingMutex;
+    std::optional<CommitTiming> m_timing;
+    std::chrono::steady_clock::time_point m_timingStart;
+    std::chrono::steady_clock::time_point m_timingTarget;
 };
 
 class DrmAtomicCommit : public DrmCommit
@@ -65,6 +85,7 @@ public:
     }
     void addBlob(const DrmProperty &prop, const std::shared_ptr<DrmBlob> &blob);
     void addBuffer(DrmPlane *plane, const std::shared_ptr<DrmFramebuffer> &buffer, const std::shared_ptr<OutputFrame> &frame);
+    void setQueued(std::chrono::steady_clock::time_point timestamp);
     void setVrr(DrmCrtc *crtc, bool vrr);
     void setPresentationMode(PresentationMode mode);
 

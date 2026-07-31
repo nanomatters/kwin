@@ -471,7 +471,7 @@ static std::optional<std::unordered_map<OutputLayer *, Item *>> assignLayers(Ren
         if (!recommendedSizes.isEmpty()) {
             // it's likely that sizes other than the recommended ones won't work
             const bool compositingAllowed = qobject_cast<CursorItem *>(item) != nullptr;
-            const RectF sceneRect = item->mapToView(compositingAllowed ?  item->boundingRect() : item->rect(), sceneView);
+            const RectF sceneRect = item->mapToView(compositingAllowed ? item->boundingRect() : item->rect(), sceneView);
             const Rect deviceRect = sceneRect.translated(-sceneView->viewport().topLeft()).scaled(sceneView->scale()).rounded();
             const bool hasFittingSize = std::ranges::any_of(recommendedSizes, [compositingAllowed, deviceRect](const QSize &size) {
                 if (compositingAllowed) {
@@ -650,6 +650,8 @@ std::pair<QList<Compositor::LayerData>, bool> Compositor::setupLayers(SceneView 
 
 void Compositor::composite(RenderLoop *renderLoop)
 {
+    auto totalTimeQuery = std::make_unique<CpuRenderTimeQuery>();
+
     if (m_backend->checkGraphicsReset()) {
         qCDebug(KWIN_CORE) << "Graphics reset occurred";
 #if KWIN_BUILD_NOTIFICATIONS
@@ -673,7 +675,6 @@ void Compositor::composite(RenderLoop *renderLoop)
         m_renderLoopDrivenAnimationDriver->advanceToNextFrame(renderLoop->nextPresentationTimestamp());
     }
 
-    auto totalTimeQuery = std::make_unique<CpuRenderTimeQuery>();
     auto frame = std::make_shared<OutputFrame>(renderLoop, std::chrono::nanoseconds(1'000'000'000'000 / output->refreshRate()));
     std::optional<double> desiredArtificalHdrHeadroom;
 
@@ -883,6 +884,11 @@ void Compositor::composite(RenderLoop *renderLoop)
             }
         }
     }
+
+    frame->setPrimaryDirectScanout(result && std::ranges::any_of(layers, [](const LayerData &layer) {
+        return layer.view->layer()->type() == OutputLayerType::Primary && layer.directScanout
+            && layer.view->layer()->isEnabled();
+    }));
 
     if (result) {
         for (const auto &layer : layers) {

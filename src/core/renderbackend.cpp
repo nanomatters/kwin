@@ -48,6 +48,8 @@ OutputFrame::OutputFrame(RenderLoop *loop, std::chrono::nanoseconds refreshDurat
     , m_refreshDuration(refreshDuration)
     , m_targetPageflipTime(loop->nextPresentationTimestamp())
     , m_predictedRenderTime(loop->predictedRenderTime())
+    , m_predictedWakeLatency(loop->predictedWakeLatency())
+    , m_scheduledRenderTime(loop->nextRenderTimestamp())
 {
 }
 
@@ -81,20 +83,16 @@ bool OutputFrame::isDirectScanoutBuffer(GraphicsBuffer *buffer) const
 
 std::optional<RenderTimeSpan> OutputFrame::queryRenderTime() const
 {
-    const auto minimumTime = m_refreshDuration.count()
-        ? std::min(std::chrono::nanoseconds(std::chrono::milliseconds(2)), m_refreshDuration / 4)
-        : std::chrono::nanoseconds(std::chrono::milliseconds(2));
-
     if (m_renderTimeQueries.empty()) {
         return RenderTimeSpan{};
     }
-    const auto first = m_renderTimeQueries.front()->query(minimumTime);
+    const auto first = m_renderTimeQueries.front()->query(std::chrono::nanoseconds::zero());
     if (!first) {
         return std::nullopt;
     }
     RenderTimeSpan ret = *first;
     for (const auto &query : m_renderTimeQueries | std::views::drop(1)) {
-        const auto opt = query->query(minimumTime);
+        const auto opt = query->query(std::chrono::nanoseconds::zero());
         if (!opt) {
             return std::nullopt;
         }
@@ -155,6 +153,49 @@ std::chrono::nanoseconds OutputFrame::refreshDuration() const
 std::chrono::nanoseconds OutputFrame::predictedRenderTime() const
 {
     return m_predictedRenderTime;
+}
+
+std::chrono::nanoseconds OutputFrame::predictedWakeLatency() const
+{
+    return m_predictedWakeLatency;
+}
+
+std::chrono::steady_clock::time_point OutputFrame::scheduledRenderTime() const
+{
+    return m_scheduledRenderTime;
+}
+
+void OutputFrame::setPrimaryDirectScanout(bool directScanout)
+{
+    m_primaryDirectScanout = directScanout;
+}
+
+bool OutputFrame::primaryDirectScanout() const
+{
+    return m_primaryDirectScanout;
+}
+
+void OutputFrame::setCommitQueued(std::chrono::steady_clock::time_point timestamp)
+{
+    if (!m_commitQueued) {
+        m_commitQueued = timestamp;
+    }
+}
+
+std::optional<std::chrono::steady_clock::time_point> OutputFrame::commitQueued() const
+{
+    return m_commitQueued;
+}
+
+void OutputFrame::setCommitTiming(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end,
+                                  std::chrono::steady_clock::time_point target)
+{
+    m_commitTiming = CommitTiming{start, end, target};
+}
+
+std::optional<OutputFrame::CommitTiming> OutputFrame::commitTiming() const
+{
+    return m_commitTiming;
 }
 
 std::optional<double> OutputFrame::brightness() const

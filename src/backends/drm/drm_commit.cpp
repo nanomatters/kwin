@@ -18,6 +18,7 @@
 
 #include <QCoreApplication>
 #include <QThread>
+#include <QtEnvironmentVariables>
 #include <set>
 
 using namespace std::chrono_literals;
@@ -28,6 +29,13 @@ namespace KWin
 DrmCommit::DrmCommit(DrmGpu *gpu)
     : m_gpu(gpu)
 {
+}
+
+DrmCommit::DrmCommit(const DrmCommit &copy)
+    : m_gpu(copy.m_gpu)
+    , m_defunct(copy.m_defunct)
+{
+    // Timing belongs to the commit instance that is submitted.
 }
 
 DrmCommit::~DrmCommit()
@@ -43,6 +51,35 @@ DrmGpu *DrmCommit::gpu() const
 void DrmCommit::setDefunct()
 {
     m_defunct = true;
+}
+
+bool DrmCommit::timingEnabled()
+{
+    static const bool enabled = qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0;
+    return enabled;
+}
+
+void DrmCommit::beginTiming(std::chrono::steady_clock::time_point target)
+{
+    m_timingStart = std::chrono::steady_clock::now();
+    m_timingTarget = target;
+}
+
+void DrmCommit::finishTiming()
+{
+    const auto end = std::chrono::steady_clock::now();
+    std::unique_lock lock(m_timingMutex);
+    m_timing = CommitTiming{
+        .start = m_timingStart,
+        .end = end,
+        .target = m_timingTarget,
+    };
+}
+
+std::optional<DrmCommit::CommitTiming> DrmCommit::timing() const
+{
+    std::unique_lock lock(m_timingMutex);
+    return m_timing;
 }
 
 DrmAtomicCommit::DrmAtomicCommit(DrmGpu *gpu)
@@ -87,6 +124,15 @@ void DrmAtomicCommit::addBuffer(DrmPlane *plane, const std::shared_ptr<DrmFrameb
             m_targetPageflipTime = std::min(*m_targetPageflipTime, frame->targetPageflipTime());
         } else {
             m_targetPageflipTime = frame->targetPageflipTime();
+        }
+    }
+}
+
+void DrmAtomicCommit::setQueued(std::chrono::steady_clock::time_point timestamp)
+{
+    for (const auto &[plane, frame] : m_frames) {
+        if (frame) {
+            frame->setCommitQueued(timestamp);
         }
     }
 }
@@ -175,6 +221,7 @@ void DrmAtomicCommit::pageFlipped(std::chrono::nanoseconds timestamp, uint64_t s
     if (m_defunct) {
         return;
     }
+    const auto commitTiming = timingEnabled() ? timing() : std::nullopt;
     // de-duplicate frames, so that two planes committed
     // together don't cause problems
     std::set<OutputFrame *> frames;
@@ -184,6 +231,9 @@ void DrmAtomicCommit::pageFlipped(std::chrono::nanoseconds timestamp, uint64_t s
         }
     }
     for (const auto &frame : frames) {
+        if (commitTiming) {
+            frame->setCommitTiming(commitTiming->start, commitTiming->end, commitTiming->target);
+        }
         frame->presented(timestamp, m_mode, sequence);
     }
     m_frames.clear();

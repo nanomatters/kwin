@@ -43,11 +43,14 @@ public:
     std::optional<std::fstream> m_debugOutput;
     std::chrono::nanoseconds lastPresentationTimestamp = std::chrono::nanoseconds::zero();
     std::chrono::nanoseconds nextPresentationTimestamp = std::chrono::nanoseconds::zero();
+    std::chrono::nanoseconds nextRenderTimestamp = std::chrono::nanoseconds::zero();
     std::chrono::nanoseconds lastPresentNotBefore = std::chrono::nanoseconds::zero();
     bool wasTripleBuffering = false;
     int doubleBufferingCounter = 0;
     PreciseTimer compositeTimer;
     RenderJournal renderJournal;
+    RenderJournal::Prediction nextRenderPrediction{};
+    RenderJournal::Mode lastRenderMode = RenderJournal::Mode::Composited;
     int refreshRate = 60000;
     int pendingFrameCount = 0;
     bool preparingNewFrame = false;

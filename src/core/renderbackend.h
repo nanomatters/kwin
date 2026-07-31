@@ -75,6 +75,13 @@ private:
 class KWIN_EXPORT OutputFrame
 {
 public:
+    struct CommitTiming
+    {
+        std::chrono::steady_clock::time_point start;
+        std::chrono::steady_clock::time_point end;
+        std::chrono::steady_clock::time_point target;
+    };
+
     explicit OutputFrame(RenderLoop *loop, std::chrono::nanoseconds refreshDuration);
     ~OutputFrame();
 
@@ -95,6 +102,16 @@ public:
     std::chrono::steady_clock::time_point targetPageflipTime() const;
     std::chrono::nanoseconds refreshDuration() const;
     std::chrono::nanoseconds predictedRenderTime() const;
+    std::chrono::nanoseconds predictedWakeLatency() const;
+    std::chrono::steady_clock::time_point scheduledRenderTime() const;
+
+    void setPrimaryDirectScanout(bool directScanout);
+    bool primaryDirectScanout() const;
+
+    void setCommitQueued(std::chrono::steady_clock::time_point timestamp);
+    std::optional<std::chrono::steady_clock::time_point> commitQueued() const;
+    void setCommitTiming(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end, std::chrono::steady_clock::time_point target);
+    std::optional<CommitTiming> commitTiming() const;
 
     std::optional<double> brightness() const;
     void setBrightness(double brightness);
@@ -112,6 +129,8 @@ private:
     const std::chrono::nanoseconds m_refreshDuration;
     const std::chrono::steady_clock::time_point m_targetPageflipTime;
     const std::chrono::nanoseconds m_predictedRenderTime;
+    const std::chrono::nanoseconds m_predictedWakeLatency;
+    const std::chrono::steady_clock::time_point m_scheduledRenderTime;
     struct Feedback
     {
         std::shared_ptr<PresentationFeedback> feedback;
@@ -123,6 +142,9 @@ private:
     PresentationMode m_presentationMode = PresentationMode::VSync;
     std::vector<std::unique_ptr<RenderTimeQuery>> m_renderTimeQueries;
     bool m_presented = false;
+    bool m_primaryDirectScanout = false;
+    std::optional<std::chrono::steady_clock::time_point> m_commitQueued;
+    std::optional<CommitTiming> m_commitTiming;
     std::optional<double> m_brightness;
     std::optional<double> m_dimmingFactor;
     std::optional<double> m_artificialHdrHeadroom;

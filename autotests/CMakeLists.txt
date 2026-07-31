@@ -230,6 +230,14 @@ add_test(NAME kwin-testOutputTransform COMMAND testOutputTransform)
 ecm_mark_as_test(testOutputTransform)
 
 ########################################################
+# Test RenderJournal
+########################################################
+add_executable(testRenderJournal test_render_journal.cpp)
+target_link_libraries(testRenderJournal kwin Qt::Test)
+add_test(NAME kwin-testRenderJournal COMMAND testRenderJournal)
+ecm_mark_as_test(testRenderJournal)
+
+########################################################
 # Test Colorspace
 ########################################################
 add_executable(testColorspaces test_colorspaces.cpp)

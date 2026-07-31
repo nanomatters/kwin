@@ -91,6 +91,7 @@ public:
      */
     std::chrono::nanoseconds nextPresentationTimestamp() const;
 
+    std::chrono::steady_clock::time_point nextRenderTimestamp() const;
     void setPresentationMode(PresentationMode mode);
 
     void setMaxPendingFrameCount(uint32_t maxCount);
@@ -99,6 +100,7 @@ public:
      * Returns the expected time how long it is going to take to render the next frame.
      */
     std::chrono::nanoseconds predictedRenderTime() const;
+    std::chrono::nanoseconds predictedWakeLatency() const;
 
     // TODO integrate cursor updates into the render loop / frame scheduling somehow?
     // and then remove this again
