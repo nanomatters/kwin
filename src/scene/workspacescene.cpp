@@ -246,13 +246,12 @@ static Region mapToDevice(SceneView *view, Item *item, const RegionF &itemLocal)
     return ret;
 }
 
-static bool isCandidate(SurfaceItem *item, const Rect &deviceRect, bool isOpaque, SceneView *view)
+static bool isCandidate(SurfaceItem *item, const Rect &deviceRect, bool isOpaque, qreal opacity, SceneView *view)
 {
     if (!item || !item->buffer() || !item->buffer()->dmabufAttributes()) {
         return false;
     }
-    // TODO make the compositor handle item opacity as well
-    if (item->opacity() < 1.0) {
+    if (opacity < 1.0) {
         return false;
     }
     const bool updatesQuickly = item->frameTimeEstimation().transform([](const auto t) {
@@ -276,7 +275,7 @@ static bool isCandidate(SurfaceItem *item, const Rect &deviceRect, bool isOpaque
  * - std::nullopt if it can still be continued,
  * - false if the search failed and should be stopped
  */
-static std::optional<bool> findOverlayCandidates(SceneView *view, Item *item, ssize_t maxTotalCount,
+static std::optional<bool> findOverlayCandidates(SceneView *view, Item *item, ssize_t maxTotalCount, qreal parentOpacity,
                                                  Region &occupied, Region &opaque, Region &effected,
                                                  QList<Item *> &overlays, QList<Item *> &underlays,
                                                  QStack<ClipCorner> &corners, bool &needsCompositedScene)
@@ -288,6 +287,7 @@ static std::optional<bool> findOverlayCandidates(SceneView *view, Item *item, ss
         || !view->viewport().intersects(item->mapToView(item->boundingRect(), view))) {
         return std::nullopt;
     }
+    const qreal opacity = parentOpacity * item->opacity();
     if (item->hasEffects()) {
         // can't put this item, any children on items below this one
         // on an overlay/underlay, as we don't know what the effect does
@@ -309,7 +309,7 @@ static std::optional<bool> findOverlayCandidates(SceneView *view, Item *item, ss
         if (child->z() < 0) {
             break;
         }
-        if (auto ret = findOverlayCandidates(view, child, maxTotalCount, occupied, opaque, effected, overlays, underlays, corners, needsCompositedScene)) {
+        if (auto ret = findOverlayCandidates(view, child, maxTotalCount, opacity, occupied, opaque, effected, overlays, underlays, corners, needsCompositedScene)) {
             return ret;
         }
     }
@@ -326,7 +326,7 @@ static std::optional<bool> findOverlayCandidates(SceneView *view, Item *item, ss
         const Region deviceOpaque = mapToDevice(view, item, item->opaque());
         SurfaceItem *surfaceItem = dynamic_cast<SurfaceItem *>(item);
         const bool isOpaque = deviceOpaque.contains(deviceRect);
-        if (!effected.intersects(deviceRect) && isCandidate(surfaceItem, deviceRect, isOpaque, view)) {
+        if (!effected.intersects(deviceRect) && isCandidate(surfaceItem, deviceRect, isOpaque, opacity, view)) {
             if (occupied.intersects(deviceRect) || (!corners.isEmpty() && corners.top().radius.clips(item->rect(), corners.top().box))) {
                 if (!isOpaque) {
                     // only fully opaque items can be used as underlays
@@ -365,7 +365,7 @@ static std::optional<bool> findOverlayCandidates(SceneView *view, Item *item, ss
 
     for (; it != children.rend(); it++) {
         Item *const child = *it;
-        if (auto ret = findOverlayCandidates(view, child, maxTotalCount, occupied, opaque, effected, overlays, underlays, corners, needsCompositedScene)) {
+        if (auto ret = findOverlayCandidates(view, child, maxTotalCount, opacity, occupied, opaque, effected, overlays, underlays, corners, needsCompositedScene)) {
             return ret;
         }
     }
@@ -444,7 +444,7 @@ QList<Item *> WorkspaceScene::layerCandidates(ssize_t maxTotalCount) const
             }
             continue;
         }
-        result = findOverlayCandidates(painted_delegate, item, maxTotalCount, occupied, opaque, effected, overlays, underlays, cornerStack, needsCompositedScene);
+        result = findOverlayCandidates(painted_delegate, item, maxTotalCount, 1.0, occupied, opaque, effected, overlays, underlays, cornerStack, needsCompositedScene);
         if (result.has_value()) {
             if (*result) {
                 break;
@@ -455,7 +455,7 @@ QList<Item *> WorkspaceScene::layerCandidates(ssize_t maxTotalCount) const
     }
 
     if (!result) {
-        result = findOverlayCandidates(painted_delegate, m_containerItem.get(), maxTotalCount, occupied, opaque, effected, overlays, underlays, cornerStack, needsCompositedScene);
+        result = findOverlayCandidates(painted_delegate, m_containerItem.get(), maxTotalCount, 1.0, occupied, opaque, effected, overlays, underlays, cornerStack, needsCompositedScene);
         if (result.has_value() && !*result) {
             return fallback();
         }
