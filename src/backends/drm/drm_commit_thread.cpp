@@ -200,7 +200,9 @@ void DrmCommitThread::submit()
         m_commits.clear();
         qCWarning(KWIN_DRM) << "atomic commit failed:" << strerror(errno);
     }
-    QMetaObject::invokeMethod(this, &DrmCommitThread::clearDroppedCommits, Qt::ConnectionType::QueuedConnection);
+    if (!m_commitsToDelete.empty()) {
+        QMetaObject::invokeMethod(this, &DrmCommitThread::clearDroppedCommits, Qt::ConnectionType::QueuedConnection);
+    }
 }
 
 void DrmCommitThread::optimizeCommits(TimePoint pageflipTarget)
