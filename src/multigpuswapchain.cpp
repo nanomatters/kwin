@@ -318,6 +318,13 @@ std::optional<MultiGpuSwapchain::Ret> MultiGpuSwapchain::copyWithEGL(GraphicsBuf
         handleGpuReset();
         return std::nullopt;
     }
+    if (sync.isValid()) {
+        const auto fence = EGLNativeFence::importFence(m_copyContext->displayObject(), std::move(sync));
+        if (!fence.waitSync()) {
+            m_journal.clear();
+            return std::nullopt;
+        }
+    }
     std::unique_ptr<GLRenderTimeQuery> renderTime;
     if (frame) {
         renderTime = std::make_unique<GLRenderTimeQuery>(m_copyContext);
