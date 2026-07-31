@@ -40,6 +40,7 @@ private:
 
     EglGbmLayerSurface m_surface;
     std::shared_ptr<DrmFramebuffer> m_scanoutBuffer;
+    const char *m_lastScanoutRejection = nullptr;
 };
 
 }

@@ -15,6 +15,7 @@
 #include "drm_crtc.h"
 #include "drm_egl_backend.h"
 #include "drm_gpu.h"
+#include "drm_logging.h"
 #include "drm_output.h"
 #include "drm_pipeline.h"
 #include "scene/surfaceitem_wayland.h"
@@ -83,53 +84,65 @@ bool EglGbmLayer::preparePresentationTest()
 
 static const auto s_allowHardwareRotation = environmentVariableBoolValue("KWIN_ENABLE_HW_ROTATION");
 static const bool s_directScanoutDisabled = environmentVariableBoolValue("KWIN_DRM_NO_DIRECT_SCANOUT").value_or(false);
+static const bool s_debugScanout = environmentVariableBoolValue("KWIN_DEBUG_SCANOUT").value_or(false);
 
 bool EglGbmLayer::earlyScanoutChecks()
 {
-    if (s_directScanoutDisabled) {
+    const auto reject = [this](const char *reason) {
+        if (s_debugScanout && m_lastScanoutRejection != reason) {
+            qCDebug(KWIN_DRM) << "direct scanout:" << reason;
+            m_lastScanoutRejection = reason;
+        }
         return false;
+    };
+    if (s_directScanoutDisabled) {
+        return reject("disabled");
     }
     if (m_type != OutputLayerType::Primary && drmOutput()->shouldDisableNonPrimaryPlanes()) {
-        return false;
+        return reject("non-primary planes are disabled");
     }
     if (gpu()->needsModeset()) {
         // don't do direct scanout with modeset, it might lead to locking
         // the hardware to some buffer format we can't switch away from
-        return false;
+        return reject("modeset pending");
     }
     if (drmOutput()->needsShadowBuffer()) {
         // while there are cases where this could still work (if the client prepares the buffer to match the output exactly)
         // it's likely not worth making this code more complicated to handle those edge cases
-        return false;
+        return reject("shadow buffer required");
     }
     if (!m_colorPipeline.isIdentity()) {
-        if (!m_plane || drmOutput()->colorPowerTradeoff() == BackendOutput::ColorPowerTradeoff::PreferAccuracy) {
-            return false;
+        if (!m_plane) {
+            return reject("no plane for color conversion");
+        }
+        if (drmOutput()->colorPowerTradeoff() == BackendOutput::ColorPowerTradeoff::PreferAccuracy) {
+            return reject("color conversion disabled by accuracy policy");
         }
         const auto pipelines = m_plane->colorPipelines();
         const bool match = std::ranges::any_of(pipelines, [this](DrmColorOp *colorop) {
             return colorop->colorOp()->matchPipeline(gpu(), m_colorPipeline);
         });
         if (!match) {
-            return false;
+            return reject("no compatible plane color pipeline");
         }
     }
     // kernel documentation says that
     // "Devices that don’t support subpixel plane coordinates can ignore the fractional part."
     // so we need to make sure that doesn't cause a difference vs the composited result
     if (sourceRect() != sourceRect().toRect()) {
-        return false;
+        return reject("fractional source rectangle");
     }
     if (offloadTransform() != OutputTransform::Kind::Normal) {
         // hardware rotation is broken on AMD GPUs that don't support modifiers,
         // see https://gitlab.freedesktop.org/drm/amd/-/work_items/5403
         if (!s_allowHardwareRotation.value_or(!gpu()->drmDevice()->isAmdgpu() || gpu()->addFB2ModifiersSupported())) {
-            return false;
+            return reject("hardware rotation disabled");
         }
         if (!m_plane || !m_plane->supportsTransformation(offloadTransform())) {
-            return false;
+            return reject("plane does not support the transform");
         }
     }
+    m_lastScanoutRejection = nullptr;
     return true;
 }
 
