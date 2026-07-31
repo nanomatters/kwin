@@ -373,6 +373,7 @@ static bool prepareDirectScanout(RenderView *view, LogicalOutput *logicalOutput,
     if (!attrs) {
         return false;
     }
+    layer->setScanoutCandidate(candidate);
     layer->setTargetRect(mapItemToOutputDeviceCoordinates(candidate, view, logicalOutput, backendOutput));
     layer->setEnabled(true);
     layer->setSourceRect(candidate->bufferSourceBox());
@@ -385,7 +386,6 @@ static bool prepareDirectScanout(RenderView *view, LogicalOutput *logicalOutput,
     const bool tearing = frame->presentationMode() == PresentationMode::Async || frame->presentationMode() == PresentationMode::AdaptiveAsync;
     const auto formats = tearing ? layer->supportedAsyncDrmFormats() : layer->supportedDrmFormats();
     if (!formats.containsFormat(attrs->format, attrs->modifier) || !layer->importScanoutBuffer(candidate->buffer(), frame)) {
-        layer->setScanoutCandidate(candidate);
         candidate->setScanoutHint(layer->scanoutDevice(), formats);
         return false;
     }
