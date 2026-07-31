@@ -79,6 +79,7 @@ public:
 
 private:
     void tryKmsColorOffloading(State &next);
+    void setNeedsShadowBuffer(bool needed, const char *reason);
     double calculateMaxArtificialHdrHeadroom(const State &next) const;
     std::shared_ptr<ColorDescription> createColorDescription(const State &next) const;
     Capabilities computeCapabilities() const;
@@ -98,6 +99,7 @@ private:
 
     QVector3D m_sRgbChannelFactors = {1, 1, 1};
     bool m_needsShadowBuffer = false;
+    const char *m_shadowBufferReason = nullptr;
     PresentationMode m_desiredPresentationMode = PresentationMode::VSync;
     bool m_autoRotateAvailable = false;
     bool m_autoBrightnessAvailable = false;

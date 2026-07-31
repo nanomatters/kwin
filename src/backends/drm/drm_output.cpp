@@ -31,6 +31,7 @@
 #include <QPainter>
 // c++
 #include <cerrno>
+#include <cmath>
 // drm
 #include <drm_fourcc.h>
 #include <libdrm/drm_mode.h>
@@ -736,6 +737,42 @@ void DrmOutput::setChannelFactors(const QVector3D &rgb)
     setState(next);
 }
 
+static QString describeColor(const std::shared_ptr<ColorDescription> &color)
+{
+    if (!color) {
+        return QStringLiteral("(none)");
+    }
+    const auto primaries = [](const Colorimetry &colorimetry) {
+        const auto encode = [](double value) {
+            return int(std::round(value * 1'000'000.0));
+        };
+        const xyY red = colorimetry.red().toxyY();
+        const xyY green = colorimetry.green().toxyY();
+        const xyY blue = colorimetry.blue().toxyY();
+        const xyY white = colorimetry.white().toxyY();
+        return QStringLiteral("%1,%2 %3,%4 %5,%6 %7,%8")
+            .arg(encode(red.x))
+            .arg(encode(red.y))
+            .arg(encode(green.x))
+            .arg(encode(green.y))
+            .arg(encode(blue.x))
+            .arg(encode(blue.y))
+            .arg(encode(white.x))
+            .arg(encode(white.y));
+    };
+    const TransferFunction &tf = color->transferFunction();
+    return QStringLiteral("tf=%1 luminances=[%2 %3 %4] minLum=%5 maxFALL=%6 maxCLL=%7 primaries=[%8] mastering=[%9]")
+        .arg(int(tf.type))
+        .arg(tf.minLuminance, 0, 'f', 6)
+        .arg(tf.maxLuminance, 0, 'f', 6)
+        .arg(color->referenceLuminance(), 0, 'f', 6)
+        .arg(color->minLuminance(), 0, 'f', 6)
+        .arg(color->maxAverageLuminance().value_or(-1), 0, 'f', 6)
+        .arg(color->maxHdrLuminance().value_or(-1), 0, 'f', 6)
+        .arg(primaries(color->containerColorimetry()))
+        .arg(primaries(color->masteringColorimetry()));
+}
+
 void DrmOutput::tryKmsColorOffloading(State &next)
 {
     if (!m_pipeline->activePending() || m_pipeline->layers().empty() || m_lease) {
@@ -747,11 +784,17 @@ void DrmOutput::tryKmsColorOffloading(State &next)
     });
 
     constexpr TransferFunction::Type blendingSpace = TransferFunction::gamma22;
-    const double maxLuminance = next.colorDescription->maxHdrLuminance().value_or(next.colorDescription->referenceLuminance());
     if (next.colorDescription->transferFunction().type == blendingSpace) {
         next.blendingColor = next.colorDescription;
     } else {
-        next.blendingColor = next.colorDescription->withTransferFunction(TransferFunction(blendingSpace, 0, maxLuminance));
+        // Keep the preferred description stable across a protocol round trip.
+        // Reference and maximum luminance use whole-nit protocol units.
+        const double maxLuminance = std::round(next.colorDescription->maxHdrLuminance().value_or(next.colorDescription->referenceLuminance()));
+        const double maxAverageLuminance = std::round(next.colorDescription->maxAverageLuminance().value_or(maxLuminance));
+        next.blendingColor = next.colorDescription
+                                 ->withReference(std::round(next.colorDescription->referenceLuminance()))
+                                 ->withHdrMetadata(maxAverageLuminance, maxLuminance)
+                                 ->withTransferFunction(TransferFunction(blendingSpace, 0, maxLuminance));
     }
 
     // we can't use the original color description without modifications
@@ -771,9 +814,10 @@ void DrmOutput::tryKmsColorOffloading(State &next)
         next.layerBlendingColor = encoding;
         m_pipeline->setCrtcColorPipeline(ColorPipeline{});
         m_pipeline->applyPendingChanges();
-        m_needsShadowBuffer = usesICC
-            || next.colorDescription->transferFunction().type != blendingSpace
-            || !colorPipeline.isIdentity();
+        setNeedsShadowBuffer(usesICC
+                                 || next.colorDescription->transferFunction().type != blendingSpace
+                                 || !colorPipeline.isIdentity(),
+                             "color power tradeoff is prefer accuracy");
         return;
     }
     if (usesICC) {
@@ -799,7 +843,7 @@ void DrmOutput::tryKmsColorOffloading(State &next)
     if (DrmPipeline::commitPipelines({m_pipeline}, m_gpu, DrmPipeline::CommitMode::Test) == DrmPipeline::Error::None) {
         m_pipeline->applyPendingChanges();
         next.layerBlendingColor = next.blendingColor;
-        m_needsShadowBuffer = false;
+        setNeedsShadowBuffer(false, "crtc color pipeline offload");
         return;
     }
     if (next.colorDescription->transferFunction().type == blendingSpace && !usesICC) {
@@ -812,7 +856,7 @@ void DrmOutput::tryKmsColorOffloading(State &next)
         if (DrmPipeline::commitPipelines({m_pipeline}, m_gpu, DrmPipeline::CommitMode::Test) == DrmPipeline::Error::None) {
             m_pipeline->applyPendingChanges();
             next.layerBlendingColor = next.blendingColor;
-            m_needsShadowBuffer = false;
+            setNeedsShadowBuffer(false, "crtc color pipeline offload, night light in non-linear space");
             return;
         }
     }
@@ -820,15 +864,27 @@ void DrmOutput::tryKmsColorOffloading(State &next)
     m_pipeline->setCrtcColorPipeline(ColorPipeline{});
     m_pipeline->applyPendingChanges();
     next.layerBlendingColor = encoding;
-    m_needsShadowBuffer = usesICC
-        || next.colorDescription->transferFunction().type != blendingSpace
-        || !colorPipeline.isIdentity();
+    setNeedsShadowBuffer(usesICC
+                             || next.colorDescription->transferFunction().type != blendingSpace
+                             || !colorPipeline.isIdentity(),
+                         "crtc color pipeline rejected by the atomic test");
+}
+
+void DrmOutput::setNeedsShadowBuffer(bool needed, const char *reason)
+{
+    if (m_needsShadowBuffer != needed || m_shadowBufferReason != reason) {
+        qCDebug(KWIN_DRM) << name() << "shadow buffer" << (needed ? "enabled" : "disabled") << "-" << reason;
+    }
+    m_needsShadowBuffer = needed;
+    m_shadowBufferReason = reason;
 }
 
 void DrmOutput::maybeScheduleRepaints(const State &next)
 {
     // TODO move the output layers to BackendOutput, and have it take care of this when updating State
     if (next.blendingColor != m_state.blendingColor || next.layerBlendingColor != m_state.layerBlendingColor) {
+        qCDebug(KWIN_DRM) << name() << "blending color:" << describeColor(next.blendingColor);
+        qCDebug(KWIN_DRM) << name() << "layer blending color:" << describeColor(next.layerBlendingColor);
         const auto layers = m_pipeline->layers();
         for (const auto &layer : layers) {
             layer->addDeviceRepaint(Region::infinite());

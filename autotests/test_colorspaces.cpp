@@ -49,6 +49,9 @@ private Q_SLOTS:
     void testBlackPointCompensation();
     void testSCRGB();
     void testNightLightNoTonemapping();
+    void testProtocolRoundTripIsIdentity_data();
+    void testProtocolRoundTripIsIdentity();
+    void testWindowsBt2100IsNotPreferredEncoding();
 };
 
 static bool compareVectors(const QVector3D &one, const QVector3D &two, float maxDifference)
@@ -688,6 +691,156 @@ void TestColorspaces::testNightLightNoTonemapping()
     QVERIFY(std::holds_alternative<ColorMatrix>(pipeline.ops[1].operation));
     QVERIFY(std::holds_alternative<ColorClamp>(pipeline.ops[2].operation));
     QVERIFY(std::holds_alternative<InverseColorTransferFunction>(pipeline.ops[3].operation));
+}
+
+/* Models an image description's protocol round trip. */
+static constexpr double s_primaryUnit = 1.0 / 1'000'000.0;
+static constexpr double s_minLuminanceUnit = 1.0 / 10'000.0;
+
+static Colorimetry primariesRoundTrip(const Colorimetry &colorimetry)
+{
+    const auto wire = [](double value) {
+        return std::clamp(std::round(value / s_primaryUnit), 0.0, 1.0 / s_primaryUnit) * s_primaryUnit;
+    };
+    const xyY red = colorimetry.red().toxyY();
+    const xyY green = colorimetry.green().toxyY();
+    const xyY blue = colorimetry.blue().toxyY();
+    const xyY white = colorimetry.white().toxyY();
+    return Colorimetry{
+        xy{wire(red.x), wire(red.y)},
+        xy{wire(green.x), wire(green.y)},
+        xy{wire(blue.x), wire(blue.y)},
+        xy{wire(white.x), wire(white.y)},
+    };
+}
+
+static std::shared_ptr<ColorDescription> protocolRoundTrip(const std::shared_ptr<ColorDescription> &color, bool namedPrimaries)
+{
+    const uint32_t wireMinLuminance = std::round(color->transferFunction().minLuminance / s_minLuminanceUnit);
+    const uint32_t wireMaxLuminance = std::round(color->transferFunction().maxLuminance);
+    const uint32_t wireReferenceLuminance = std::round(color->referenceLuminance());
+    const uint32_t wireTargetMinLuminance = std::round(color->minLuminance() / s_minLuminanceUnit);
+    const std::optional<uint32_t> wireMaxFall = color->maxAverageLuminance().transform([](double value) {
+        return uint32_t(std::round(value));
+    });
+    const std::optional<uint32_t> wireMaxCll = color->maxHdrLuminance().transform([](double value) {
+        return uint32_t(std::round(value));
+    });
+
+    TransferFunction func{color->transferFunction().type};
+    func.minLuminance = wireMinLuminance * s_minLuminanceUnit;
+    if (func.type == TransferFunction::PerceptualQuantizer) {
+        func.maxLuminance = func.minLuminance + 10'000;
+    } else {
+        func.maxLuminance = wireMaxLuminance;
+    }
+    return std::make_shared<ColorDescription>(ColorDescription{
+        namedPrimaries ? color->containerColorimetry() : primariesRoundTrip(color->containerColorimetry()),
+        func,
+        double(wireReferenceLuminance),
+        wireTargetMinLuminance * s_minLuminanceUnit,
+        wireMaxFall.transform([](uint32_t value) {
+        return double(value);
+    }),
+        wireMaxCll.transform([](uint32_t value) {
+        return double(value);
+    })
+            .value_or(func.maxLuminance),
+        primariesRoundTrip(color->masteringColorimetry()),
+        Colorimetry::BT709,
+    });
+}
+
+/* Models the preferred blending description for an HDR DRM output. */
+static std::shared_ptr<ColorDescription> blendingColorForHdrOutput(double brightness, double dimming, bool nightLight, bool quantize)
+{
+    constexpr double maxReferenceLuminance = 203;
+    constexpr double headroom = 1.0;
+    const TransferFunction pq(TransferFunction::PerceptualQuantizer);
+    // Approximate a panel smaller than BT.2020.
+    const Colorimetry nativeColorimetry{
+        xy{0.6835, 0.3125},
+        xy{0.2646, 0.6904},
+        xy{0.1494, 0.0517},
+        xy{0.3127, 0.3290},
+    };
+    std::shared_ptr<ColorDescription> color = std::make_shared<ColorDescription>(ColorDescription{
+        Colorimetry::BT2020,
+        pq,
+        5 + (maxReferenceLuminance - 5) * brightness * dimming,
+        pq.minLuminance,
+        463.7 * headroom,
+        821.3 * headroom,
+        nativeColorimetry,
+        Colorimetry::BT709,
+    });
+    if (nightLight) {
+        const xyY newWhite = XYZ::fromVector(color->containerColorimetry().toXYZ() * QVector3D(1.0, 0.94, 0.82)).toxyY();
+        color = color->withWhitepoint(newWhite)->dimmed(newWhite.Y);
+    }
+    const double maxLuminance = color->maxHdrLuminance().value_or(color->referenceLuminance());
+    if (!quantize) {
+        return color->withTransferFunction(TransferFunction(TransferFunction::gamma22, 0, maxLuminance));
+    }
+    const double quantizedMaxLuminance = std::round(maxLuminance);
+    return color->withReference(std::round(color->referenceLuminance()))
+        ->withHdrMetadata(std::round(color->maxAverageLuminance().value_or(quantizedMaxLuminance)), quantizedMaxLuminance)
+        ->withTransferFunction(TransferFunction(TransferFunction::gamma22, 0, quantizedMaxLuminance));
+}
+
+void TestColorspaces::testProtocolRoundTripIsIdentity_data()
+{
+    QTest::addColumn<double>("brightness");
+    QTest::addColumn<double>("dimming");
+    QTest::addColumn<bool>("nightLight");
+    QTest::addColumn<bool>("quantize");
+    QTest::addColumn<bool>("expectIdentity");
+
+    QTest::addRow("full brightness") << 1.0 << 1.0 << false << true << true;
+    QTest::addRow("80%% brightness") << 0.8 << 1.0 << false << true << true;
+    QTest::addRow("47%% brightness") << 0.47 << 1.0 << false << true << true;
+    QTest::addRow("30%% brightness, dimmed") << 0.3 << 0.7 << false << true << true;
+    QTest::addRow("night light") << 1.0 << 1.0 << true << true << true;
+    QTest::addRow("night light, 47%% brightness") << 0.47 << 1.0 << true << true << true;
+    // Whole-nit fields require quantization for an identity round trip.
+    QTest::addRow("unquantized") << 0.47 << 1.0 << false << false << false;
+}
+
+void TestColorspaces::testProtocolRoundTripIsIdentity()
+{
+    QFETCH(double, brightness);
+    QFETCH(double, dimming);
+    QFETCH(bool, nightLight);
+    QFETCH(bool, quantize);
+    QFETCH(bool, expectIdentity);
+
+    const auto blendingColor = blendingColorForHdrOutput(brightness, dimming, nightLight, quantize);
+    const auto clientColor = protocolRoundTrip(blendingColor, !nightLight);
+
+    // An identity pipeline avoids requiring plane color operations.
+    const auto pipeline = ColorPipeline::create(clientColor, blendingColor, RenderingIntent::RelativeColorimetric);
+    if (expectIdentity && !pipeline.isIdentity()) {
+        qWarning() << "expected an identity pipeline, got" << pipeline;
+    }
+    QCOMPARE(pipeline.isIdentity(), expectIdentity);
+}
+
+void TestColorspaces::testWindowsBt2100IsNotPreferredEncoding()
+{
+    const auto preferred = blendingColorForHdrOutput(1.0, 1.0, false, true);
+    const auto windowsBt2100 = std::make_shared<ColorDescription>(ColorDescription{
+        Colorimetry::BT2020,
+        TransferFunction(TransferFunction::PerceptualQuantizer, 0.005, 10'000),
+        203,
+        0,
+        std::nullopt,
+        std::nullopt,
+        Colorimetry::BT2020,
+        Colorimetry::BT709,
+    });
+
+    const auto pipeline = ColorPipeline::create(windowsBt2100, preferred, RenderingIntent::RelativeColorimetric);
+    QVERIFY(!pipeline.isIdentity());
 }
 
 QTEST_MAIN(TestColorspaces)

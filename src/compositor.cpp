@@ -42,6 +42,8 @@
 
 #include "core/drm_formats.h"
 
+#include <map>
+
 #include <KCrash>
 #if KWIN_BUILD_NOTIFICATIONS
 #include <KLocalizedString>
@@ -354,6 +356,22 @@ static Rect mapItemToOutputDeviceCoordinates(Item *item, RenderView *view, Logic
     return backendOutput->transform().map(scaledItemRect.translated(backendOutput->deviceOffset() - scaledOutputPos), backendOutput->pixelSize());
 }
 
+static const bool s_debugScanout = environmentVariableBoolValue("KWIN_DEBUG_SCANOUT").value_or(false);
+
+/* Logs scanout result changes when KWIN_DEBUG_SCANOUT is set. */
+static void logScanoutOutcome(OutputLayer *layer, const char *reason)
+{
+    if (!s_debugScanout) {
+        return;
+    }
+    static std::map<OutputLayer *, const char *> s_lastOutcome;
+    const char *&last = s_lastOutcome[layer];
+    if (last != reason) {
+        last = reason;
+        qCDebug(KWIN_CORE) << "direct scanout:" << reason;
+    }
+}
+
 static bool prepareDirectScanout(RenderView *view, LogicalOutput *logicalOutput, BackendOutput *backendOutput, const std::shared_ptr<OutputFrame> &frame)
 {
     if (!view->isVisible()) {
@@ -363,14 +381,17 @@ static bool prepareDirectScanout(RenderView *view, LogicalOutput *logicalOutput,
     const auto candidate = view->scanoutCandidate();
     if (!candidate) {
         layer->setScanoutCandidate(nullptr);
+        logScanoutOutcome(layer, "rejected: no scanout candidate");
         return false;
     }
     const auto buffer = candidate->buffer();
     if (!buffer) {
+        logScanoutOutcome(layer, "rejected: candidate has no buffer");
         return false;
     }
     const auto attrs = buffer->dmabufAttributes();
     if (!attrs) {
+        logScanoutOutcome(layer, "rejected: candidate buffer is not a dmabuf");
         return false;
     }
     layer->setScanoutCandidate(candidate);
@@ -379,16 +400,36 @@ static bool prepareDirectScanout(RenderView *view, LogicalOutput *logicalOutput,
     layer->setSourceRect(candidate->bufferSourceBox());
     layer->setBufferTransform(candidate->bufferTransform());
     layer->setOffloadTransform(candidate->bufferTransform().combine(backendOutput->transform().inverted()));
-    layer->setColor(candidate->colorDescription(), candidate->renderingIntent(), ColorPipeline::create(candidate->colorDescription(), backendOutput->layerBlendingColor(), candidate->renderingIntent()));
+    const ColorPipeline pipeline = ColorPipeline::create(candidate->colorDescription(), backendOutput->layerBlendingColor(), candidate->renderingIntent());
+    if (s_debugScanout && !pipeline.isIdentity()) {
+        // Non-identity pipelines require plane color operations.
+        static std::map<OutputLayer *, QString> s_lastPipeline;
+        QString description;
+        QDebug(&description) << pipeline;
+        QString &last = s_lastPipeline[layer];
+        if (last != description) {
+            last = description;
+            qCDebug(KWIN_CORE) << "direct scanout: client to layer color pipeline is not identity:" << description;
+        }
+    }
+    layer->setColor(candidate->colorDescription(), candidate->renderingIntent(), pipeline);
     if (!layer->earlyScanoutChecks()) {
+        logScanoutOutcome(layer, "rejected: geometry, color or plane check failed");
         return false;
     }
     const bool tearing = frame->presentationMode() == PresentationMode::Async || frame->presentationMode() == PresentationMode::AdaptiveAsync;
     const auto formats = tearing ? layer->supportedAsyncDrmFormats() : layer->supportedDrmFormats();
-    if (!formats.containsFormat(attrs->format, attrs->modifier) || !layer->importScanoutBuffer(candidate->buffer(), frame)) {
+    if (!formats.containsFormat(attrs->format, attrs->modifier)) {
         candidate->setScanoutHint(layer->scanoutDevice(), formats);
+        logScanoutOutcome(layer, "rejected: format or modifier not supported by the plane");
         return false;
     }
+    if (!layer->importScanoutBuffer(candidate->buffer(), frame)) {
+        candidate->setScanoutHint(layer->scanoutDevice(), formats);
+        logScanoutOutcome(layer, "rejected: importing the buffer failed");
+        return false;
+    }
+    logScanoutOutcome(layer, "accepted");
     return true;
 }
 
