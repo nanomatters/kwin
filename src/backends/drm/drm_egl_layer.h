@@ -32,6 +32,7 @@ public:
     bool doEndFrame(const Region &renderedDeviceRegion, const Region &damagedDeviceRegion, OutputFrame *frame) override;
     bool preparePresentationTest() override;
     std::shared_ptr<DrmFramebuffer> currentBuffer() const override;
+    bool hasDirectScanoutBuffer() const override;
     void releaseBuffers() override;
 
 private:

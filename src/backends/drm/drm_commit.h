@@ -84,7 +84,8 @@ public:
         addProperty(prop, prop.valueForEnum(enumValue));
     }
     void addBlob(const DrmProperty &prop, const std::shared_ptr<DrmBlob> &blob);
-    void addBuffer(DrmPlane *plane, const std::shared_ptr<DrmFramebuffer> &buffer, const std::shared_ptr<OutputFrame> &frame);
+    void addBuffer(DrmPlane *plane, const std::shared_ptr<DrmFramebuffer> &buffer, const std::shared_ptr<OutputFrame> &frame,
+                   bool directScanout = false);
     void setQueued(std::chrono::steady_clock::time_point timestamp);
     void setVrr(DrmCrtc *crtc, bool vrr);
     void setPresentationMode(PresentationMode mode);
@@ -111,6 +112,7 @@ public:
     bool isTearing() const;
 
 private:
+    bool supportsInFenceFd(DrmPlane *plane) const;
     bool doCommit(uint32_t flags);
 
     const QList<DrmPipeline *> m_pipelines;
@@ -120,6 +122,8 @@ private:
     std::unordered_map<DrmPlane *, std::shared_ptr<DrmFramebuffer>> m_buffers;
     std::unordered_map<DrmPlane *, std::shared_ptr<OutputFrame>> m_frames;
     std::unordered_set<DrmPlane *> m_planes;
+    std::unordered_set<DrmPlane *> m_inFencePlanes;
+    std::unordered_set<DrmPlane *> m_kernelWaitPlanes;
     std::optional<bool> m_vrr;
     std::unordered_map<uint32_t /* object */, std::unordered_map<uint32_t /* property */, uint64_t /* value */>> m_properties;
     bool m_modeset = false;

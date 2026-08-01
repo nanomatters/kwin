@@ -109,14 +109,32 @@ void DrmAtomicCommit::addBlob(const DrmProperty &prop, const std::shared_ptr<Drm
     m_blobs[&prop] = blob;
 }
 
-void DrmAtomicCommit::addBuffer(DrmPlane *plane, const std::shared_ptr<DrmFramebuffer> &buffer, const std::shared_ptr<OutputFrame> &frame)
+bool DrmAtomicCommit::supportsInFenceFd(DrmPlane *plane) const
+{
+    if (!plane->inFenceFd.isValid() || isTearing()) {
+        return false;
+    }
+    // NVIDIA before 560.35.3 rejects IN_FENCE_FD.
+    return !plane->gpu()->drmDevice()->isNvidia()
+        || plane->gpu()->nvidiaDriverVersion() >= Version(560, 35, 3);
+}
+
+void DrmAtomicCommit::addBuffer(DrmPlane *plane, const std::shared_ptr<DrmFramebuffer> &buffer,
+                                const std::shared_ptr<OutputFrame> &frame, bool directScanout)
 {
     addProperty(plane->fbId, buffer ? buffer->framebufferId() : 0);
     m_buffers[plane] = buffer;
     m_frames[plane] = frame;
-    // atomic commits with IN_FENCE_FD fail with NVidia and (as of kernel 6.9) with tearing
-    if (plane->inFenceFd.isValid() && !plane->gpu()->drmDevice()->isNvidia() && !isTearing()) {
+    if (supportsInFenceFd(plane)) {
         addProperty(plane->inFenceFd, buffer ? buffer->syncFd().get() : -1);
+        m_inFencePlanes.insert(plane);
+    } else {
+        m_inFencePlanes.erase(plane);
+    }
+    if (directScanout && buffer && buffer->syncFd().isValid() && m_inFencePlanes.contains(plane)) {
+        m_kernelWaitPlanes.insert(plane);
+    } else {
+        m_kernelWaitPlanes.erase(plane);
     }
     m_planes.emplace(plane);
     if (frame) {
@@ -244,9 +262,9 @@ void DrmAtomicCommit::pageFlipped(std::chrono::nanoseconds timestamp, uint64_t s
 
 bool DrmAtomicCommit::areBuffersReadable() const
 {
-    return std::ranges::all_of(m_buffers, [](const auto &pair) {
+    return std::ranges::all_of(m_buffers, [this](const auto &pair) {
         const auto &[plane, buffer] = pair;
-        return !buffer || buffer->isReadable();
+        return !buffer || m_kernelWaitPlanes.contains(plane) || buffer->isReadable();
     });
 }
 
@@ -281,6 +299,19 @@ void DrmAtomicCommit::merge(DrmAtomicCommit *onTop)
         m_buffers[plane] = buffer;
         m_frames[plane] = onTop->m_frames[plane];
         m_planes.emplace(plane);
+        if (onTop->m_inFencePlanes.contains(plane)) {
+            m_inFencePlanes.insert(plane);
+        } else {
+            m_inFencePlanes.erase(plane);
+            if (plane->inFenceFd.isValid()) {
+                m_properties[plane->id()].erase(plane->inFenceFd.propId());
+            }
+        }
+        if (onTop->m_kernelWaitPlanes.contains(plane)) {
+            m_kernelWaitPlanes.insert(plane);
+        } else {
+            m_kernelWaitPlanes.erase(plane);
+        }
     }
     for (const auto &[prop, blob] : onTop->m_blobs) {
         m_blobs[prop] = blob;
@@ -288,6 +319,7 @@ void DrmAtomicCommit::merge(DrmAtomicCommit *onTop)
     if (onTop->m_vrr) {
         m_vrr = onTop->m_vrr;
     }
+    m_mode = onTop->m_mode;
     if (!m_targetPageflipTime) {
         m_targetPageflipTime = onTop->m_targetPageflipTime;
     } else if (onTop->m_targetPageflipTime) {

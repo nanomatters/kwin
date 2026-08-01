@@ -43,6 +43,7 @@ public:
     FormatModifierMap supportedAsyncDrmFormats() const override;
 
     virtual std::shared_ptr<DrmFramebuffer> currentBuffer() const = 0;
+    virtual bool hasDirectScanoutBuffer() const;
 
     DrmPlane *plane() const;
 

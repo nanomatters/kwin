@@ -94,6 +94,11 @@ DrmPipelineLayer::DrmPipelineLayer(DrmPlane::TypeIndex type)
 {
 }
 
+bool DrmPipelineLayer::hasDirectScanoutBuffer() const
+{
+    return false;
+}
+
 DrmPlane *DrmPipelineLayer::plane() const
 {
     return m_plane;

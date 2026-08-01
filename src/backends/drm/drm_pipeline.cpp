@@ -252,7 +252,7 @@ DrmPipeline::Error DrmPipeline::prepareAtomicPlane(DrmAtomicCommit *commit, DrmP
         return Error::InvalidArguments;
     }
     commit->addProperty(plane->crtcId, m_pending.crtc->id());
-    commit->addBuffer(plane, fb, frame);
+    commit->addBuffer(plane, fb, frame, layer->hasDirectScanoutBuffer());
     plane->set(commit, layer->sourceRect().toRect(), layer->targetRect());
     if (plane->vmHotspotX.isValid() && plane->vmHotspotY.isValid()) {
         commit->addProperty(plane->vmHotspotX, std::round(layer->hotspot().x()));
@@ -494,6 +494,7 @@ bool DrmPipeline::presentAsync(OutputLayer *layer, std::optional<std::chrono::na
         }
         // only give the actual state update to the commit thread, so that it can potentially reorder the commits
         auto partialUpdate = std::make_unique<DrmAtomicCommit>(QList<DrmPipeline *>{this});
+        partialUpdate->setPresentationMode(m_pending.presentationMode);
         prepareAtomicPlane(partialUpdate.get(), drmLayer->plane(), drmLayer, nullptr);
         partialUpdate->setAllowedVrrDelay(allowedVrrDelay);
         m_commitThread->addCommit(std::move(partialUpdate));

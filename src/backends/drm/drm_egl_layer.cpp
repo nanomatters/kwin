@@ -156,6 +156,11 @@ std::shared_ptr<DrmFramebuffer> EglGbmLayer::currentBuffer() const
     return m_scanoutBuffer ? m_scanoutBuffer : m_surface.currentBuffer();
 }
 
+bool EglGbmLayer::hasDirectScanoutBuffer() const
+{
+    return m_scanoutBuffer != nullptr;
+}
+
 void EglGbmLayer::releaseBuffers()
 {
     m_scanoutBuffer.reset();
